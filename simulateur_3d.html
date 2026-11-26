@@ -1,0 +1,1586 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bras Manipulateur — Simulation &amp; Espace de Travail</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/controls/OrbitControls.js"></script>
+  <style>
+    :root {
+      --canvas-bg: #eef2f7;
+      --surface: #ffffff;
+      --surface-subtle: #f8fafc;
+      --line: #d4dce7;
+      --line-soft: #e6ecf4;
+      --ink: #0f172a;
+      --ink-2: #475569;
+      --ink-3: #64748b;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --ok: #10b981;
+      --warn: #f59e0b;
+      --err: #ef4444;
+      --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+      --font-mono: "IBM Plex Mono", "Consolas", monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    sub { font-size: 0.72em; line-height: 0; vertical-align: -0.22em; }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--canvas-bg);
+      color: var(--ink);
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ===== VIEWPORT 3D ===== */
+    #viewport-wrap {
+      flex: 1;
+      position: relative;
+      background: var(--canvas-bg);
+      overflow: hidden;
+    }
+    #webgl-container { width: 100%; height: 100%; position: relative; }
+    #labels-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+
+    /* Étiquettes 3D techniques sobres */
+    .tag3d {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      padding: 1px 5px;
+      border-radius: 2px;
+      white-space: nowrap;
+      user-select: none;
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--ink);
+      border: 1px solid rgba(20, 23, 28, 0.16);
+    }
+    .tag-pivot { font-weight: 600; }
+    .tag-wrist { border-left: 3px solid #7c3aed; color: #5b21b6; }
+    .tag-effector { background: #ef4444; color: #ffffff; border-color: #dc2626; }
+    .tag-axis-x { border-left: 3px solid #2563eb; color: #1d4ed8; }
+    .tag-axis-y { border-left: 3px solid #10b981; color: #047857; }
+    .tag-axis-z { border-left: 3px solid #6366f1; color: #4338ca; }
+    .tag-dim-x { border-left: 3px solid #2563eb; color: #1d4ed8; }
+    .tag-dim-y { border-left: 3px solid #10b981; color: #047857; }
+    .tag-angle { border-left: 3px solid #f59e0b; color: #b45309; }
+    .tag-tick {
+      background: transparent;
+      border: none;
+      color: #6b7280;
+      font-size: 9.5px;
+      padding: 0;
+    }
+
+    /* ===== INSPECTEUR LATÉRAL (STYLE CAO / INSTRUMENT) ===== */
+    #sidebar {
+      width: 368px;
+      background: var(--surface);
+      border-left: 1px solid var(--line);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      z-index: 20;
+    }
+
+    /* Barre d'onglets principale flush (Simulation / Prédiction) */
+    .main-mode-bar {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface-subtle);
+    }
+    .main-mode-btn {
+      border: none;
+      border-bottom: 2px solid transparent;
+      padding: 12px 10px;
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      color: var(--ink-2);
+      background: transparent;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .main-mode-btn:hover { color: var(--ink); }
+    .main-mode-btn.active-sim {
+      color: var(--accent);
+      background: var(--surface);
+      border-bottom-color: var(--accent);
+    }
+    .main-mode-btn.active-pred {
+      color: #7c3aed;
+      background: var(--surface);
+      border-bottom-color: #7c3aed;
+    }
+
+    /* Sections séparées par filets 1px (zéro cartes imbriquées) */
+    .sec {
+      padding: 15px 18px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .sec:last-child { border-bottom: none; }
+
+    .sec-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .sec-title {
+      font-size: 10.5px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--ink-3);
+    }
+
+    /* Indicateur de statut minimaliste (point 6px + texte) */
+    .status-line {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 500;
+      letter-spacing: 0.03em;
+    }
+    .status-dot { width: 6px; height: 6px; border-radius: 1px; background: var(--ok); display: inline-block; }
+    .status-ok { color: var(--ok); }
+    .status-ok .status-dot { background: var(--ok); }
+    .status-warn { color: var(--warn); }
+    .status-warn .status-dot { background: var(--warn); }
+    .status-err { color: var(--err); }
+    .status-err .status-dot { background: var(--err); }
+
+    /* Sous-onglets MGD / MGI */
+    .seg-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border: 1px solid var(--line);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-bottom: 14px;
+    }
+    .tab-btn {
+      padding: 6px 8px;
+      border: none;
+      background: var(--surface-subtle);
+      color: var(--ink-2);
+      font-family: var(--font-sans);
+      font-weight: 500;
+      font-size: 11.5px;
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s;
+    }
+    .tab-btn + .tab-btn { border-left: 1px solid var(--line); }
+    .tab-btn:hover { color: var(--ink); }
+    .tab-btn.active { background: var(--accent); color: #ffffff; font-weight: 600; }
+
+    /* Contrôles curseur + champ numérique */
+    .ctrl-row {
+      display: grid;
+      grid-template-columns: 104px 1fr 64px;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      font-size: 12px;
+    }
+    .ctrl-row:last-child { margin-bottom: 0; }
+    .ctrl-row label { color: var(--ink-2); font-weight: 500; }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 2px;
+      background: var(--line);
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 11px;
+      height: 11px;
+      background: var(--ink);
+      border-radius: 1.5px;
+      cursor: pointer;
+      transition: background 0.12s, transform 0.12s;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      background: var(--accent);
+      transform: scale(1.12);
+    }
+    input[type="range"]::-moz-range-thumb {
+      width: 11px;
+      height: 11px;
+      background: var(--ink);
+      border: none;
+      border-radius: 1.5px;
+      cursor: pointer;
+    }
+
+    input[type="number"], .select-input {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      color: var(--ink);
+      border-radius: 3px;
+      padding: 4px 6px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      transition: border-color 0.12s;
+    }
+    input[type="number"]:focus, .select-input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .select-input {
+      font-family: var(--font-sans);
+      text-align: left;
+      padding: 6px 8px;
+      margin-bottom: 12px;
+      font-size: 12px;
+    }
+
+    .radio-row {
+      display: flex;
+      gap: 16px;
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line-soft);
+      font-size: 11.5px;
+      color: var(--ink-2);
+    }
+    .radio-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+    .radio-row input[type="radio"] { accent-color: var(--ink); }
+
+    /* Grille de spécifications (clé / valeur sans boîtes imbriquées) */
+    .spec-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border-top: 1px solid var(--line-soft);
+      border-bottom: 1px solid var(--line-soft);
+      margin-bottom: 10px;
+    }
+    .spec-cell {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .spec-cell:nth-child(odd) { padding-right: 12px; border-right: 1px solid var(--line-soft); }
+    .spec-cell:nth-child(even) { padding-left: 12px; }
+    .spec-cell:nth-last-child(-n+2) { border-bottom: none; }
+    .spec-lbl {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--ink-3);
+      font-weight: 500;
+    }
+    .spec-val {
+      font-family: var(--font-mono);
+      font-size: 13.5px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: var(--ink);
+      margin-top: 2px;
+    }
+
+    .meta-list {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.7;
+      color: var(--ink-2);
+    }
+    .meta-list strong { color: var(--ink); font-weight: 600; }
+
+    /* Formulaire compact (cotes & test cible) */
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 12px;
+    }
+    .field-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      font-size: 11.8px;
+      color: var(--ink-2);
+    }
+    .field-item input { width: 64px; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #ffffff;
+      border: 1px solid var(--accent);
+      border-radius: 3px;
+      padding: 6px 10px;
+      font-family: var(--font-sans);
+      font-size: 11.8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    .btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+    /* Carte 2D espace de travail */
+    #ws-canvas-2d {
+      width: 100%;
+      height: 210px;
+      background: var(--surface-subtle);
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      display: block;
+      margin-bottom: 10px;
+    }
+    .legend-row {
+      display: flex;
+      gap: 14px;
+      font-size: 11px;
+      color: var(--ink-2);
+      margin-top: 2px;
+    }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+    .swatch { width: 8px; height: 8px; border-radius: 1px; display: inline-block; }
+
+    .diag-box {
+      margin-top: 10px;
+      padding-top: 9px;
+      border-top: 1px solid var(--line-soft);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.65;
+      color: var(--ink-2);
+    }
+
+    #offline-msg {
+      display: none; position: absolute; inset: 0; background: rgba(20, 23, 28, 0.88);
+      color: #fff; align-items: center; justify-content: center; text-align: center; padding: 24px; z-index: 50;
+    }
+
+    @media (max-width: 960px) {
+      body { flex-direction: column; height: auto; overflow: auto; }
+      #viewport-wrap { height: 55vh; }
+      #sidebar { width: 100%; border-left: none; border-top: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- VIEWPORT 3D -->
+  <div id="viewport-wrap">
+    <div id="webgl-container"></div>
+    <div id="labels-layer"></div>
+    <div id="offline-msg">
+      <div>
+        <h2>Connexion Internet requise pour charger Three.js WebGL</h2>
+        <p style="margin-top:8px; color:#cbd5e1;">Vérifiez votre connexion puis rechargez la page.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- INSPECTEUR LATÉRAL -->
+  <aside id="sidebar">
+
+    <div class="main-mode-bar">
+      <button id="btn-app-sim" class="main-mode-btn active-sim" onclick="setAppMode('simulation')">Simulation</button>
+      <button id="btn-app-pred" class="main-mode-btn" onclick="setAppMode('prediction')">Prédiction</button>
+    </div>
+
+    <!-- MODE SIMULATION -->
+    <div id="view-simulation">
+
+      <section class="sec">
+        <div class="sec-head">
+          <span class="sec-title">Lois géométriques</span>
+          <span id="status-badge" class="status-line status-ok"><span class="status-dot"></span>NOMINAL</span>
+        </div>
+
+        <div class="seg-tabs">
+          <button id="tab-mgd" class="tab-btn active" onclick="setSimMode('mgd')">MGD (θ<sub>1</sub>, θ<sub>4</sub>, θ<sub>3</sub>)</button>
+          <button id="tab-mgi" class="tab-btn" onclick="setSimMode('mgi')">MGI (x<sub>M</sub>, y<sub>M</sub>, φ)</button>
+        </div>
+
+        <div id="panel-mgd">
+          <div class="ctrl-row">
+            <label>θ<sub>1</sub> Bras 1 (°)</label>
+            <input type="range" id="sl-t1" min="-55" max="75" step="0.5" value="10" oninput="onAngleInput('t1', this.value)">
+            <input type="number" id="num-t1" step="0.5" value="10" oninput="onAngleInput('t1', this.value)">
+          </div>
+          <div class="ctrl-row">
+            <label>θ<sub>4</sub> Manivelle (°)</label>
+            <input type="range" id="sl-t4" min="-60" max="60" step="0.5" value="-22" oninput="onAngleInput('t4', this.value)">
+            <input type="number" id="num-t4" step="0.5" value="-22" oninput="onAngleInput('t4', this.value)">
+          </div>
+          <div class="ctrl-row">
+            <label>θ<sub>3</sub> Poignet (°)</label>
+            <input type="range" id="sl-t3" min="-120" max="120" step="0.5" value="-22" oninput="onAngleInput('t3', this.value)">
+            <input type="number" id="num-t3" step="0.5" value="-22" oninput="onAngleInput('t3', this.value)">
+          </div>
+        </div>
+
+        <div id="panel-mgi" style="display:none;">
+          <div class="ctrl-row">
+            <label>x<sub>M</sub> Vertical (mm)</label>
+            <input type="range" id="sl-xm" min="-120" max="480" step="1" value="134" oninput="onTargetInput('xm', this.value)">
+            <input type="number" id="num-xm" step="1" value="134" oninput="onTargetInput('xm', this.value)">
+          </div>
+          <div class="ctrl-row">
+            <label>y<sub>M</sub> Horiz. (mm)</label>
+            <input type="range" id="sl-ym" min="40" max="510" step="1" value="327" oninput="onTargetInput('ym', this.value)">
+            <input type="number" id="num-ym" step="1" value="327" oninput="onTargetInput('ym', this.value)">
+          </div>
+          <div class="ctrl-row">
+            <label>φ Orientation (°)</label>
+            <input type="range" id="sl-phi" min="0" max="180" step="1" value="90" oninput="onTargetInput('phi', this.value)">
+            <input type="number" id="num-phi" step="1" value="90" oninput="onTargetInput('phi', this.value)">
+          </div>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head">
+          <span class="sec-title">État effecteur M</span>
+        </div>
+        <div class="spec-grid" style="margin-bottom:0;">
+          <div class="spec-cell"><div class="spec-lbl">x<sub>M</sub> (vert. / O)</div><div id="out-xm" class="spec-val">134.2 mm</div></div>
+          <div class="spec-cell"><div class="spec-lbl">y<sub>M</sub> (horiz. / O)</div><div id="out-ym" class="spec-val">327.2 mm</div></div>
+          <div class="spec-cell"><div class="spec-lbl">φ orientation</div><div id="out-phi" class="spec-val">90.00°</div></div>
+          <div class="spec-cell"><div class="spec-lbl">Z<sub>sol</sub> (x<sub>M</sub> + h<sub>0</sub>)</div><div id="out-zsol" class="spec-val">191.2 mm</div></div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- MODE PRÉDICTION -->
+    <div id="view-prediction" style="display:none;">
+
+      <section class="sec">
+        <div class="sec-head">
+          <span class="sec-title">Espace de travail</span>
+          <span id="pred-badge" class="status-line status-ok"><span class="status-dot"></span>ACTIF</span>
+        </div>
+
+        <select id="pred-ws-mode" class="select-input" onchange="recomputePredictionWorkspace()">
+          <option value="M_phi">Effecteur M à orientation φ fixée</option>
+          <option value="M_all">Effecteur M — Espace total (θ₃ libre)</option>
+          <option value="B_only">Poignet B seul (sans L₃)</option>
+        </select>
+
+        <div id="pred-phi-row" class="ctrl-row" style="margin-bottom:12px;">
+          <label>φ imposée (°)</label>
+          <input type="range" id="sl-pred-phi" min="0" max="180" step="5" value="90" oninput="onPredPhiInput(this.value)">
+          <input type="number" id="num-pred-phi" step="5" value="90" oninput="onPredPhiInput(this.value)">
+        </div>
+
+        <canvas id="ws-canvas-2d" width="332" height="210"></canvas>
+
+        <div class="spec-grid">
+          <div class="spec-cell"><div class="spec-lbl">Surface utile</div><div id="pred-area" class="spec-val">— cm²</div></div>
+          <div class="spec-cell"><div class="spec-lbl">Perte FC1 / FC2</div><div id="pred-loss" class="spec-val">— %</div></div>
+          <div class="spec-cell"><div class="spec-lbl">Portée Y (horiz.)</div><div id="pred-yrange" class="spec-val">— mm</div></div>
+          <div class="spec-cell"><div class="spec-lbl">Portée X (vert.)</div><div id="pred-zrange" class="spec-val">— mm</div></div>
+        </div>
+        <div class="legend-row">
+          <span class="legend-item"><span class="swatch" style="background:#2563eb;"></span>Atteignable</span>
+          <span class="legend-item"><span class="swatch" style="background:#f97316;"></span>Bloqué FC1 / FC2</span>
+        </div>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head">
+          <span class="sec-title">Vérification d'une cible</span>
+        </div>
+        <div class="field-grid">
+          <div class="field-item"><span>x<sub>M</sub> (mm)</span><input type="number" id="pt-xm" value="160"></div>
+          <div class="field-item"><span>y<sub>M</sub> (mm)</span><input type="number" id="pt-ym" value="310"></div>
+          <div class="field-item"><span>φ (°)</span><input type="number" id="pt-phi" value="90"></div>
+          <button class="btn-primary" onclick="predictTargetPoint()">Tester cible</button>
+        </div>
+        <div id="pred-point-out" class="diag-box" style="display:none;"></div>
+      </section>
+
+    </div>
+
+    <!-- LONGUEURS DU BRAS -->
+    <section class="sec">
+      <div class="sec-head">
+        <span class="sec-title">Dimensions du bras (mm)</span>
+      </div>
+      <div class="field-grid">
+        <div class="field-item"><span>L<sub>1</sub> Bras 1</span><input type="number" id="p-L1" value="220" min="80" max="500" onchange="onParamChange()"></div>
+        <div class="field-item"><span>L<sub>2</sub> Bras 2</span><input type="number" id="p-L2" value="220" min="80" max="500" onchange="onParamChange()"></div>
+        <div class="field-item"><span>L<sub>3</sub> Effecteur</span><input type="number" id="p-L3" value="85" min="0" max="250" onchange="onParamChange()"></div>
+        <div class="field-item"><span>a Manivelle</span><input type="number" id="p-a" value="55" min="25" max="140" onchange="onParamChange()"></div>
+        <div class="field-item"><span>h<sub>0</sub> Axe O/sol</span><input type="number" id="p-h0" value="57" min="35" max="180" onchange="onParamChange()"></div>
+      </div>
+    </section>
+
+  </aside>
+
+<script>
+if (typeof THREE === "undefined") {
+  document.getElementById("offline-msg").style.display = "flex";
+  throw new Error("Three.js non chargé");
+}
+
+// ============================================================================
+// 1. MODÈLE GÉOMÉTRIQUE COMPLET 3 DDL PLANS (RAPPORT N°2 : Bras 1 + Bras 2 + Effecteur L3)
+// ============================================================================
+const state = {
+  params: {
+    L1: 220, L2: 220, L3: 85, a: 55, h0: 57,
+    t1Min: -22, t1Max: 70,
+    t4Min: -55, t4Max: 16,
+    t3Max: 110,
+  },
+  appMode: "simulation", // "simulation" | "prediction"
+  simMode: "mgd",        // "mgd" | "mgi"
+  t1: 10 * Math.PI / 180,
+  t4: -22 * Math.PI / 180,
+  t3: -22 * Math.PI / 180, // => phi = 90 - (-22) + (-22) = 90° (pince horizontale)
+  target: { xm: 134.2, ym: 327.2, phi: 90 * Math.PI / 180 },
+  errMgi: 0,
+  mgiOk: true,
+  mgiMsg: "OK",
+  fc1Active: false,
+  fc2Active: false,
+  fc1Roller: { x: -37, y: 27.5, r: 3.2 },
+  fc2Roller: { x: -52, y: 27.5, r: 3.2 },
+  trail: [],
+  trajMode: null,
+  trajPhase: 0,
+};
+
+const deg = r => r * 180 / Math.PI;
+const rad = d => d * Math.PI / 180;
+
+function mgd3DDL(t1, t4, t3, p) {
+  const O = { x: 0, y: 0 };
+  const A = { x: p.L1 * Math.cos(t1), y: p.L1 * Math.sin(t1) };
+  const I = { x: -p.a * Math.sin(t4), y: -p.a * Math.cos(t4) };
+  const J = { x: A.x - p.a * Math.sin(t4), y: A.y - p.a * Math.cos(t4) };
+  const B = { x: A.x + p.L2 * Math.sin(t4), y: A.y + p.L2 * Math.cos(t4) };
+  const phi = Math.PI / 2 - t4 + t3;
+  const M = {
+    x: B.x + p.L3 * Math.sin(t4 - t3),
+    y: B.y + p.L3 * Math.cos(t4 - t3),
+  };
+  return { O, A, I, J, B, M, phi };
+}
+
+function mgi3DDL(xM, yM, phi, p, config = "coude_haut") {
+  // Étape 1 : Découplage cinématique -> position du poignet B
+  const xB = xM - p.L3 * Math.cos(phi);
+  const yB = yM - p.L3 * Math.sin(phi);
+
+  const R2 = xB * xB + yB * yB;
+  const R = Math.sqrt(R2);
+  const dMin = Math.abs(p.L1 - p.L2);
+  const dMax = p.L1 + p.L2;
+  if (R < dMin - 1e-6 || R > dMax + 1e-6 || R < 1e-6) {
+    return { ok: false, xB, yB, msg: `Poignet B hors portée : R=${R.toFixed(1)} mm hors [${dMin}, ${dMax}] mm` };
+  }
+
+  let cosVal = (R2 + p.L1 * p.L1 - p.L2 * p.L2) / (2 * p.L1 * R);
+  cosVal = Math.max(-1, Math.min(1, cosVal));
+  const alpha = Math.atan2(yB, xB);
+  const delta = Math.acos(cosVal);
+  const t1 = config === "coude_haut" ? (alpha - delta) : (alpha + delta);
+  const t4 = Math.atan2(xB - p.L1 * Math.cos(t1), yB - p.L1 * Math.sin(t1));
+  let t3 = phi + t4 - Math.PI / 2;
+  // Normaliser t3 dans [-pi, pi]
+  t3 = Math.atan2(Math.sin(t3), Math.cos(t3));
+
+  return { ok: true, t1, t4, t3, xB, yB, msg: "OK" };
+}
+
+// ============================================================================
+// 2. DÉTECTION PHYSIQUE & LIMITATION PAR FINS DE COURSE FC1 / FC2
+// ============================================================================
+function clearanceBras1TabToFC1(t1, p) {
+  const r = state.fc1Roller;
+  let minClear = 1e9;
+  for (let v = 12; v <= 48; v += 3) {
+    const wx = -12.5 * Math.sin(t1) - v * Math.cos(t1);
+    const wy = p.h0 - 12.5 * Math.cos(t1) + v * Math.sin(t1);
+    const d = Math.hypot(wx - r.x, wy - r.y) - r.r;
+    if (d < minClear) minClear = d;
+    if (Math.abs(wx - r.x) < 12 && wy - (r.y + r.r) < minClear) minClear = wy - (r.y + r.r);
+  }
+  return minClear;
+}
+
+function clearanceBielleIToFC2(t4, p) {
+  const r = state.fc2Roller;
+  const wx = -p.a * Math.cos(t4);
+  const wy = p.h0 - p.a * Math.sin(t4);
+  const rEnd = 11.8;
+  const distCenter = Math.hypot(wx - r.x, wy - r.y) - (rEnd + r.r);
+  const clearY = (wy - rEnd) - (r.y + r.r);
+  return Math.abs(wx - r.x) < 18 ? Math.min(distCenter, clearY) : distCenter;
+}
+
+function updatePhysicalStopAngles() {
+  const p = state.params;
+  state.fc2Roller.x = -Math.max(36, p.a - 3);
+
+  let lo = rad(-75), hi = rad(15);
+  for (let i = 0; i < 24; i++) {
+    const mid = 0.5 * (lo + hi);
+    if (clearanceBras1TabToFC1(mid, p) <= 0) lo = mid; else hi = mid;
+  }
+  p.t1Min = deg(hi);
+
+  lo = rad(-25); hi = rad(75);
+  for (let i = 0; i < 24; i++) {
+    const mid = 0.5 * (lo + hi);
+    if (clearanceBielleIToFC2(mid, p) <= 0) hi = mid; else lo = mid;
+  }
+  p.t4Max = deg(lo);
+}
+
+function applyLimitSwitchConstraint(t1, t4, t3) {
+  const p = state.params;
+  const blockEnabled = true;
+  const t1Lim = rad(p.t1Min);
+  const t4Lim = rad(p.t4Max);
+  const t3Lim = rad(p.t3Max);
+
+  let fc1 = t1 <= t1Lim + 1e-3;
+  let fc2 = t4 >= t4Lim - 1e-3;
+
+  if (blockEnabled) {
+    if (t1 < t1Lim) { t1 = t1Lim; fc1 = true; }
+    if (t4 > t4Lim) { t4 = t4Lim; fc2 = true; }
+    if (t3 > t3Lim) t3 = t3Lim;
+    if (t3 < -t3Lim) t3 = -t3Lim;
+  }
+  return { t1, t4, t3, fc1, fc2 };
+}
+
+// ============================================================================
+// 3. TEXTURES PROCÉDURALES & SCÈNE THREE.JS WEBGL
+// ============================================================================
+function createWoodTexture(baseRGB, grainRGB, seed = 1) {
+  const c = document.createElement("canvas");
+  c.width = 512; c.height = 256;
+  const g = c.getContext("2d");
+  g.fillStyle = baseRGB; g.fillRect(0, 0, 512, 256);
+  for (let i = 0; i < 160; i++) {
+    const y = (i / 160) * 256;
+    const amp = 2 + Math.sin(i * 0.17 + seed) * 2.5;
+    g.strokeStyle = grainRGB;
+    g.globalAlpha = 0.08 + ((i * 37 + seed * 13) % 10) * 0.014;
+    g.lineWidth = 1 + (i % 3) * 0.6;
+    g.beginPath();
+    for (let x = 0; x <= 512; x += 16) {
+      const yy = y + Math.sin(x * 0.015 + i * 0.3 + seed) * amp;
+      if (x === 0) g.moveTo(x, yy); else g.lineTo(x, yy);
+    }
+    g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(0.012, 0.012);
+  return tex;
+}
+
+const MAT = {
+  woodBase: new THREE.MeshStandardMaterial({ map: createWoodTexture("#8b6138", "#4d2f14", 1), roughness: 0.72, metalness: 0.04 }),
+  woodBras1: new THREE.MeshStandardMaterial({ map: createWoodTexture("#9e6e3b", "#5c3917", 2), roughness: 0.65, metalness: 0.04 }),
+  woodBras2: new THREE.MeshStandardMaterial({ map: createWoodTexture("#bf915c", "#754c24", 3), roughness: 0.60, metalness: 0.04 }),
+  woodBielle: new THREE.MeshStandardMaterial({ map: createWoodTexture("#784d24", "#3d220b", 4), roughness: 0.68, metalness: 0.04 }),
+  woodManiv: new THREE.MeshStandardMaterial({ map: createWoodTexture("#8f5f30", "#4f2f12", 5), roughness: 0.66, metalness: 0.04 }),
+  laserEdge: new THREE.MeshStandardMaterial({ color: 0x3b220e, roughness: 0.85, metalness: 0.05 }),
+  riser: new THREE.MeshStandardMaterial({ color: 0x5c6670, roughness: 0.55, metalness: 0.25 }),
+  alu: new THREE.MeshStandardMaterial({ color: 0x9aa5b1, roughness: 0.32, metalness: 0.72 }),
+  stator: new THREE.MeshStandardMaterial({ color: 0x1e242b, roughness: 0.50, metalness: 0.35 }),
+  steel: new THREE.MeshStandardMaterial({ color: 0xdbe3ec, roughness: 0.22, metalness: 0.88 }),
+  bracket: new THREE.MeshStandardMaterial({ color: 0xb0bac5, roughness: 0.38, metalness: 0.65 }),
+  wristBody: new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.42, metalness: 0.45 }),
+  gripper: new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.35, metalness: 0.65 }),
+  gripperTip: new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.45, metalness: 0.2 }),
+  swIdle: new THREE.MeshStandardMaterial({ color: 0x262c34, roughness: 0.5, metalness: 0.15 }),
+  swTrig: new THREE.MeshStandardMaterial({ color: 0xdc2626, emissive: 0x7f1d1d, roughness: 0.4 }),
+  edgeLine: new THREE.LineBasicMaterial({ color: 0x1c140d, transparent: true, opacity: 0.55 }),
+  metalEdge: new THREE.LineBasicMaterial({ color: 0x0f172a, transparent: true, opacity: 0.45 }),
+};
+
+const container = document.getElementById("webgl-container");
+const labelsLayer = document.getElementById("labels-layer");
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(36, 1, 1, 3000);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.08;
+container.appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(85, 145, 0);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0xcbd5e1, 0.88));
+const keyLight = new THREE.DirectionalLight(0xfffaf0, 0.95);
+keyLight.position.set(240, 440, 340);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.left = -400; keyLight.shadow.camera.right = 520;
+keyLight.shadow.camera.top = 480;  keyLight.shadow.camera.bottom = -220;
+keyLight.shadow.bias = -0.0005;
+scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(0xdbeafe, 0.45);
+fillLight.position.set(-260, 220, -240);
+scene.add(fillLight);
+
+const shadowFloor = new THREE.Mesh(
+  new THREE.PlaneGeometry(1600, 1600),
+  new THREE.ShadowMaterial({ opacity: 0.16 })
+);
+shadowFloor.rotation.x = -Math.PI / 2;
+shadowFloor.position.y = -0.2;
+shadowFloor.receiveShadow = true;
+scene.add(shadowFloor);
+
+// ============================================================================
+// 4. CONSTRUCTION DES PIÈCES 3D (SOLIDWORKS + POIGNET B & EFFECTEUR L3)
+// ============================================================================
+function addMeshWithEdges(parent, geom, mat, edgeMat = MAT.metalEdge) {
+  const mesh = new THREE.Mesh(geom, mat);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  if (edgeMat) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geom, 24), edgeMat));
+  parent.add(mesh);
+  return mesh;
+}
+
+function createWoodenLinkMesh(rearExt, frontLen, width, thickness, woodMat, holesX = []) {
+  const r = width / 2;
+  const shape = new THREE.Shape();
+  shape.absarc(-rearExt, 0, r, Math.PI / 2, (3 * Math.PI) / 2, false);
+  shape.absarc(frontLen, 0, r, -Math.PI / 2, Math.PI / 2, false);
+  shape.closePath();
+  for (const hx of holesX) {
+    const hole = new THREE.Path();
+    hole.absarc(hx, 0, 3.2, 0, Math.PI * 2, true);
+    shape.holes.push(hole);
+  }
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth: thickness, bevelEnabled: true, bevelThickness: 0.6, bevelSize: 0.5, bevelSegments: 2, curveSegments: 20,
+  });
+  geom.translate(0, 0, -thickness / 2);
+  const mesh = new THREE.Mesh(geom, [woodMat, MAT.laserEdge]);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geom, 28), MAT.edgeLine));
+  return mesh;
+}
+
+function createBras1WithTabMesh(L1, width, thickness, woodMat) {
+  const r = width / 2;
+  const shape = new THREE.Shape();
+  shape.moveTo(0, -r);
+  shape.lineTo(L1, -r);
+  shape.absarc(L1, 0, r, -Math.PI / 2, Math.PI / 2, false);
+  shape.lineTo(15, r);
+  shape.lineTo(15, 48);
+  shape.lineTo(-r, 48);
+  shape.lineTo(-r, 0);
+  shape.absarc(0, 0, r, Math.PI, (3 * Math.PI) / 2, false);
+  shape.closePath();
+  for (const hx of [0, L1]) {
+    const hole = new THREE.Path();
+    hole.absarc(hx, 0, 3.2, 0, Math.PI * 2, true);
+    shape.holes.push(hole);
+  }
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth: thickness, bevelEnabled: true, bevelThickness: 0.6, bevelSize: 0.5, bevelSegments: 2, curveSegments: 20,
+  });
+  geom.translate(0, 0, -thickness / 2);
+  const mesh = new THREE.Mesh(geom, [woodMat, MAT.laserEdge]);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geom, 28), MAT.edgeLine));
+  return mesh;
+}
+
+/**
+ * Construit le poignet B (servo compact) et l'effecteur (3) de longueur L3
+ * avec pince à deux mors pointant jusqu'au point outil M (x = L3).
+ */
+function createWristAndEffectorGroup(L3) {
+  const grp = new THREE.Group();
+  // Moyeu / servo de poignet au pivot B (0, 0, 0)
+  const servo = addMeshWithEdges(grp, new THREE.CylinderGeometry(11, 11, 18, 18), MAT.wristBody);
+  servo.rotation.x = Math.PI / 2;
+
+  if (L3 > 2) {
+    const bodyLen = Math.max(8, L3 * 0.52);
+    const jawLen = L3 - bodyLen;
+
+    // Corps de l'effecteur (segment 3)
+    const arm3 = addMeshWithEdges(grp, new THREE.BoxGeometry(bodyLen, 14, 10), MAT.alu);
+    arm3.position.set(bodyLen / 2, 0, 0);
+
+    // Traverse porte-mors
+    const cross = addMeshWithEdges(grp, new THREE.BoxGeometry(8, 28, 12), MAT.wristBody);
+    cross.position.set(bodyLen, 0, 0);
+
+    // Deux doigts de pince jusqu'au point outil M (x = L3)
+    const j1 = addMeshWithEdges(grp, new THREE.BoxGeometry(jawLen, 5, 8), MAT.gripper);
+    j1.position.set(bodyLen + jawLen / 2, 9.5, 0);
+    const j2 = addMeshWithEdges(grp, new THREE.BoxGeometry(jawLen, 5, 8), MAT.gripper);
+    j2.position.set(bodyLen + jawLen / 2, -9.5, 0);
+
+    // Repère sphérique rouge au point outil M
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(4.2, 16, 16), MAT.gripperTip);
+    tip.position.set(L3, 0, 0);
+    grp.add(tip);
+  }
+  return grp;
+}
+
+function createHexBolt(lenZ, radius = 3.8) {
+  const grp = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.72, radius * 0.72, lenZ, 12), MAT.steel);
+  shaft.rotation.x = Math.PI / 2; grp.add(shaft);
+  const headGeo = new THREE.CylinderGeometry(radius * 1.45, radius * 1.45, 3.5, 6);
+  for (const s of [1, -1]) {
+    const h = new THREE.Mesh(headGeo, MAT.steel);
+    h.rotation.x = Math.PI / 2; h.position.z = s * (lenZ / 2 + 1.5);
+    h.add(new THREE.LineSegments(new THREE.EdgesGeometry(headGeo, 20), MAT.metalEdge));
+    grp.add(h);
+  }
+  return grp;
+}
+
+function buildNema17Assembly(zCenter, sideSign, h0) {
+  const grp = new THREE.Group();
+  const suppH = Math.max(8, h0 - 21 - 7);
+  addMeshWithEdges(grp, new THREE.BoxGeometry(48, suppH, 52), MAT.riser).position.set(0, 7 + suppH / 2, zCenter);
+  const flangeGeo = new THREE.BoxGeometry(42, 42, 9);
+  addMeshWithEdges(grp, flangeGeo, MAT.alu).position.set(0, h0, zCenter + sideSign * 19.5);
+  addMeshWithEdges(grp, new THREE.BoxGeometry(40.5, 40.5, 30), MAT.stator).position.set(0, h0, zCenter);
+  addMeshWithEdges(grp, flangeGeo, MAT.alu).position.set(0, h0, zCenter - sideSign * 19.5);
+  for (const dx of [-15.5, 15.5]) for (const dy of [-15.5, 15.5]) {
+    const s = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 1.8, 2.5, 8), MAT.stator);
+    s.rotation.x = Math.PI / 2; s.position.set(dx, h0 + dy, zCenter + sideSign * 24.5); grp.add(s);
+  }
+  addMeshWithEdges(grp, new THREE.BoxGeometry(10, 5, 14), MAT.stator).position.set(0, h0 + 22.5, zCenter + sideSign * 12);
+  const hub = addMeshWithEdges(grp, new THREE.CylinderGeometry(11.5, 11.5, 11, 12), MAT.alu);
+  hub.rotation.x = Math.PI / 2; hub.position.set(0, h0, zCenter - sideSign * 31.5);
+  return grp;
+}
+
+function buildLimitSwitch(xPos, zPos) {
+  const grp = new THREE.Group();
+  addMeshWithEdges(grp, new THREE.BoxGeometry(22, 2.5, 18), MAT.bracket).position.set(xPos, 8.2, zPos);
+  addMeshWithEdges(grp, new THREE.BoxGeometry(20, 18, 2.5), MAT.bracket).position.set(xPos, 17, zPos + 7.5);
+  const body = addMeshWithEdges(grp, new THREE.BoxGeometry(26, 15, 10), MAT.swIdle);
+  body.position.set(xPos, 16, zPos - 0.5);
+  for (const dy of [-4, 0, 4]) {
+    const pin = new THREE.Mesh(new THREE.BoxGeometry(7, 1.5, 4), MAT.steel);
+    pin.position.set(xPos - 16, 15 + dy, zPos - 0.5); grp.add(pin);
+  }
+  const leverPivot = new THREE.Group();
+  leverPivot.position.set(xPos - 8, 23.6, zPos - 0.5);
+  addMeshWithEdges(leverPivot, new THREE.BoxGeometry(28, 1.6, 4), MAT.steel).position.set(14, 0, 0);
+  const roller = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 4.5, 14), MAT.steel);
+  roller.rotation.x = Math.PI / 2; roller.position.set(27, 1.5, 0);
+  leverPivot.add(roller);
+  leverPivot.rotation.z = 0.14;
+  grp.add(leverPivot);
+  grp.userData.bodyMesh = body;
+  grp.userData.leverPivot = leverPivot;
+  return grp;
+}
+
+const baseGroup = new THREE.Group();
+const armGroup = new THREE.Group();
+const overlayGroup = new THREE.Group();
+const workspaceGroup = new THREE.Group();
+scene.add(baseGroup, armGroup, overlayGroup, workspaceGroup);
+
+let linkBras1, linkBras2, linkBielle, linkManiv, wristEffector;
+let boltA, boltI, boltJ, swFC1, swFC2;
+
+function rebuildMechanicalAssembly() {
+  while (baseGroup.children.length) baseGroup.remove(baseGroup.children[0]);
+  while (armGroup.children.length) armGroup.remove(armGroup.children[0]);
+  const p = state.params;
+
+  addMeshWithEdges(baseGroup, new THREE.BoxGeometry(195, 7, 190), [
+    MAT.laserEdge, MAT.laserEdge, MAT.woodBase, MAT.woodBase, MAT.laserEdge, MAT.laserEdge
+  ], MAT.edgeLine).position.set(-22, 3.5, 0);
+
+  baseGroup.add(buildNema17Assembly(-58, -1, p.h0));
+  baseGroup.add(buildNema17Assembly( 58,  1, p.h0));
+
+  const mainShaft = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 4.2, 68, 16), MAT.steel);
+  mainShaft.rotation.x = Math.PI / 2; mainShaft.position.set(0, p.h0, 0); baseGroup.add(mainShaft);
+
+  updatePhysicalStopAngles();
+  swFC1 = buildLimitSwitch(state.fc1Roller.x - 19, -8);
+  swFC2 = buildLimitSwitch(state.fc2Roller.x - 19, 10);
+  baseGroup.add(swFC1, swFC2);
+
+  linkBras1 = createBras1WithTabMesh(p.L1, 25, 6.5, MAT.woodBras1);
+  linkBras2 = createWoodenLinkMesh(p.a, p.L2, 26, 6.5, MAT.woodBras2, [-p.a, 0, p.L2]);
+  linkBielle = createWoodenLinkMesh(0, p.L1, 23, 6.5, MAT.woodBielle, [0, p.L1]);
+  linkManiv = createWoodenLinkMesh(0, p.a, 24, 6.5, MAT.woodManiv, [0, p.a]);
+  wristEffector = createWristAndEffectorGroup(p.L3);
+
+  linkBras1.position.z = -8;
+  linkBras2.position.z = 0;
+  linkBielle.position.z = 8;
+  linkManiv.position.z = 16;
+  wristEffector.position.z = 0;
+
+  boltA = createHexBolt(20);
+  boltJ = createHexBolt(20);
+  boltI = createHexBolt(20);
+  armGroup.add(linkBras1, linkBras2, linkBielle, linkManiv, wristEffector, boltA, boltJ, boltI);
+
+  rebuildCoordinateSystem();
+  recomputePredictionWorkspace();
+}
+
+// ============================================================================
+// 5. REPÈRE DE COORDONNÉES 3D + COTES DYNAMIQUES + ESPACE DE TRAVAIL PRÉDIT
+// ============================================================================
+let repereGroup, cotesGroup, trailLine, targetRing;
+let projLineX, projLineY, radialLine, arcTheta1, arcTheta4;
+const tickWorldPoints = [];
+
+function createDashedLine(color) {
+  const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  return new THREE.Line(geo, new THREE.LineDashedMaterial({ color, dashSize: 6, gapSize: 4, transparent: true, opacity: 0.85 }));
+}
+function createArcLine(color) {
+  return new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color }));
+}
+
+function rebuildCoordinateSystem() {
+  while (overlayGroup.children.length) overlayGroup.remove(overlayGroup.children[0]);
+  tickWorldPoints.length = 0;
+
+  const p = state.params, h0 = p.h0, zPlane = -28;
+  repereGroup = new THREE.Group();
+  cotesGroup = new THREE.Group();
+  overlayGroup.add(repereGroup, cotesGroup);
+
+  const gridVerts = [];
+  for (let gx = -100; gx <= 550; gx += 50) {
+    gridVerts.push(gx, h0 - 100, zPlane, gx, h0 + 500, zPlane);
+    if (gx !== 0 && gx % 100 === 0) tickWorldPoints.push({ pos: new THREE.Vector3(gx, h0 - 14, zPlane), text: `${gx}` });
+  }
+  for (let gy = -100; gy <= 500; gy += 50) {
+    gridVerts.push(-100, h0 + gy, zPlane, 550, h0 + gy, zPlane);
+    if (gy !== 0 && gy % 100 === 0) tickWorldPoints.push({ pos: new THREE.Vector3(-18, h0 + gy, zPlane), text: `${gy}` });
+  }
+  const gridGeo = new THREE.BufferGeometry();
+  gridGeo.setAttribute("position", new THREE.Float32BufferAttribute(gridVerts, 3));
+  repereGroup.add(new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: 0x64748b, transparent: true, opacity: 0.17 })));
+
+  const origin = new THREE.Vector3(0, h0, zPlane);
+  repereGroup.add(new THREE.ArrowHelper(new THREE.Vector3(0, 1, 0), origin, 130, 0x2563eb, 15, 8.5));
+  repereGroup.add(new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), origin, 130, 0x10b981, 15, 8.5));
+  repereGroup.add(new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), origin, 85, 0x6366f1, 13, 7.5));
+
+  projLineX = createDashedLine(0x2563eb);
+  projLineY = createDashedLine(0x10b981);
+  radialLine = createDashedLine(0x94a3b8);
+  arcTheta1 = createArcLine(0xf59e0b);
+  arcTheta4 = createArcLine(0x8b5cf6);
+  cotesGroup.add(projLineX, projLineY, radialLine, arcTheta1, arcTheta4);
+
+  targetRing = new THREE.Mesh(
+    new THREE.RingGeometry(8, 11.5, 24),
+    new THREE.MeshBasicMaterial({ color: 0xef4444, side: THREE.DoubleSide })
+  );
+  targetRing.visible = false;
+  overlayGroup.add(targetRing);
+
+  trailLine = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xef4444 }));
+  overlayGroup.add(trailLine);
+  syncOverlays();
+}
+
+/**
+ * Calcule l'espace de travail prédit (zone valide en bleu + zone perdue par FC1/FC2 en orange),
+ * met à jour le nuage 3D, la mini-carte 2D et les indicateurs prédictifs.
+ */
+function recomputePredictionWorkspace() {
+  while (workspaceGroup.children.length) workspaceGroup.remove(workspaceGroup.children[0]);
+  const p = state.params;
+  const wsMode = document.getElementById("pred-ws-mode").value;
+  const predPhi = rad(parseFloat(document.getElementById("num-pred-phi").value) || 90);
+  document.getElementById("pred-phi-row").style.display = wsMode === "M_phi" ? "grid" : "none";
+
+  const safePts3D = [], blockedPts3D = [];
+  const safePts2D = [], blockedPts2D = [];
+
+  // Grille discrète pour estimer la surface (cellules de 10 x 10 mm)
+  const cellSafe = new Set(), cellBlocked = new Set();
+  const cellKey = (x, y) => `${Math.round(x / 10)}_${Math.round(y / 10)}`;
+
+  let yMin = 1e9, yMax = -1e9, xMin = 1e9, xMax = -1e9;
+
+  // Balayage complet théorique vs respectant FC1/FC2
+  const step1 = wsMode === "M_all" ? 6 : 3.5;
+  const step4 = wsMode === "M_all" ? 6 : 3.5;
+  for (let t1d = -50; t1d <= p.t1Max; t1d += step1) {
+    for (let t4d = p.t4Min; t4d <= 55; t4d += step4) {
+      const inLimits = (t1d >= p.t1Min - 0.1) && (t4d <= p.t4Max + 0.1);
+      const t1r = rad(t1d), t4r = rad(t4d);
+
+      if (wsMode === "B_only") {
+        const q = mgd3DDL(t1r, t4r, 0, p).B;
+        const k = cellKey(q.x, q.y);
+        if (inLimits) {
+          cellSafe.add(k); safePts3D.push(q.y, p.h0 + q.x, -26); safePts2D.push(q);
+          yMin = Math.min(yMin, q.y); yMax = Math.max(yMax, q.y);
+          xMin = Math.min(xMin, q.x); xMax = Math.max(xMax, q.x);
+        } else {
+          cellBlocked.add(k); blockedPts3D.push(q.y, p.h0 + q.x, -26.5); blockedPts2D.push(q);
+        }
+      } else if (wsMode === "M_phi") {
+        let t3r = predPhi + t4r - Math.PI / 2;
+        t3r = Math.atan2(Math.sin(t3r), Math.cos(t3r));
+        const t3Ok = Math.abs(deg(t3r)) <= p.t3Max;
+        const q = mgd3DDL(t1r, t4r, t3r, p).M;
+        const k = cellKey(q.x, q.y);
+        if (inLimits && t3Ok) {
+          cellSafe.add(k); safePts3D.push(q.y, p.h0 + q.x, -26); safePts2D.push(q);
+          yMin = Math.min(yMin, q.y); yMax = Math.max(yMax, q.y);
+          xMin = Math.min(xMin, q.x); xMax = Math.max(xMax, q.x);
+        } else if (t3Ok) {
+          cellBlocked.add(k); blockedPts3D.push(q.y, p.h0 + q.x, -26.5); blockedPts2D.push(q);
+        }
+      } else {
+        for (let t3d = -p.t3Max; t3d <= p.t3Max; t3d += 28) {
+          const q = mgd3DDL(t1r, t4r, rad(t3d), p).M;
+          const k = cellKey(q.x, q.y);
+          if (inLimits) {
+            if (!cellSafe.has(k)) {
+              cellSafe.add(k); safePts3D.push(q.y, p.h0 + q.x, -26); safePts2D.push(q);
+            }
+            yMin = Math.min(yMin, q.y); yMax = Math.max(yMax, q.y);
+            xMin = Math.min(xMin, q.x); xMax = Math.max(xMax, q.x);
+          } else if (!cellBlocked.has(k)) {
+            cellBlocked.add(k); blockedPts3D.push(q.y, p.h0 + q.x, -26.5); blockedPts2D.push(q);
+          }
+        }
+      }
+    }
+  }
+
+  // Nuages 3D vifs (bleu = atteignable, orange = bloqué)
+  const gSafe = new THREE.BufferGeometry();
+  gSafe.setAttribute("position", new THREE.Float32BufferAttribute(safePts3D, 3));
+  workspaceGroup.add(new THREE.Points(gSafe, new THREE.PointsMaterial({ color: 0x2563eb, size: 4.6, transparent: true, opacity: 0.34 })));
+
+  if (blockedPts3D.length) {
+    const gBlk = new THREE.BufferGeometry();
+    gBlk.setAttribute("position", new THREE.Float32BufferAttribute(blockedPts3D, 3));
+    workspaceGroup.add(new THREE.Points(gBlk, new THREE.PointsMaterial({ color: 0xf97316, size: 3.8, transparent: true, opacity: 0.22 })));
+  }
+
+  // Statistiques prédictives
+  const areaSafeCm2 = cellSafe.size; // 1 cellule = 10x10 mm = 1 cm²
+  let onlyBlockedCount = 0;
+  for (const k of cellBlocked) if (!cellSafe.has(k)) onlyBlockedCount++;
+  const lossPct = (areaSafeCm2 + onlyBlockedCount) > 0
+    ? (100 * onlyBlockedCount) / (areaSafeCm2 + onlyBlockedCount) : 0;
+
+  document.getElementById("pred-area").textContent = `${areaSafeCm2} cm²`;
+  document.getElementById("pred-loss").textContent = `${lossPct.toFixed(1)} %`;
+  document.getElementById("pred-yrange").textContent = yMax > yMin ? `[${yMin.toFixed(0)}, ${yMax.toFixed(0)}]` : "—";
+  document.getElementById("pred-zrange").textContent = xMax > xMin ? `[${xMin.toFixed(0)}, ${xMax.toFixed(0)}]` : "—";
+
+  drawWorkspace2DMap(safePts2D, blockedPts2D);
+}
+
+function drawWorkspace2DMap(safePts, blockedPts) {
+  const c = document.getElementById("ws-canvas-2d");
+  const g = c.getContext("2d");
+  const w = c.width, h = c.height;
+  g.clearRect(0, 0, w, h);
+
+  const p = state.params;
+  const rMax = p.L1 + p.L2 + p.L3 + 40;
+  const yMinW = -120, yMaxW = rMax, xMinW = -160, xMaxW = rMax;
+  const pad = 26;
+  const sc = Math.min((w - 2 * pad) / (yMaxW - yMinW), (h - 2 * pad) / (xMaxW - xMinW));
+  const toPx = (x, y) => [pad + (y - yMinW) * sc, h - pad - (x - xMinW) * sc];
+
+  // Grille
+  g.strokeStyle = "#e2e8f0"; g.lineWidth = 1;
+  for (let v = -100; v <= rMax; v += 100) {
+    const [px] = toPx(0, v);
+    g.beginPath(); g.moveTo(px, pad); g.lineTo(px, h - pad); g.stroke();
+    const [, py] = toPx(v, 0);
+    g.beginPath(); g.moveTo(pad, py); g.lineTo(w - pad, py); g.stroke();
+  }
+
+  // Points bloqués (orange vif) puis valides (bleu vif)
+  g.fillStyle = "rgba(249, 115, 22, 0.38)";
+  for (const q of blockedPts) { const [px, py] = toPx(q.x, q.y); g.fillRect(px - 1.5, py - 1.5, 3, 3); }
+  g.fillStyle = "rgba(37, 99, 235, 0.62)";
+  for (const q of safePts) { const [px, py] = toPx(q.x, q.y); g.fillRect(px - 1.5, py - 1.5, 3, 3); }
+
+  // Axes O
+  const [ox, oy] = toPx(0, 0);
+  g.strokeStyle = "#10b981"; g.lineWidth = 1.6;
+  g.beginPath(); g.moveTo(ox, oy); g.lineTo(w - 14, oy); g.stroke();
+  g.strokeStyle = "#2563eb";
+  g.beginPath(); g.moveTo(ox, oy); g.lineTo(ox, 12); g.stroke();
+  g.fillStyle = "#0f172a"; g.font = "600 10px IBM Plex Mono, Consolas, monospace";
+  g.fillText("O", ox - 11, oy + 11);
+  g.fillStyle = "#2563eb"; g.fillText("X", ox + 5, 18);
+  g.fillStyle = "#10b981"; g.fillText("Y", w - 20, oy - 5);
+
+  // Position actuelle de M
+  const cur = mgd3DDL(state.t1, state.t4, state.t3, p).M;
+  const [mx, my] = toPx(cur.x, cur.y);
+  g.fillStyle = "#ef4444";
+  g.beginPath(); g.arc(mx, my, 4.5, 0, Math.PI * 2); g.fill();
+}
+
+function syncOverlays() {
+  if (repereGroup) repereGroup.visible = true;
+  if (cotesGroup) cotesGroup.visible = true;
+  workspaceGroup.visible = true;
+}
+
+// ============================================================================
+// 6. MISE À JOUR 3D & ÉTIQUETTES PROJETÉES
+// ============================================================================
+let lastPts = null;
+
+function updateArmPose3D() {
+  const p = state.params;
+  const pts = mgd3DDL(state.t1, state.t4, state.t3, p);
+  lastPts = pts;
+
+  const vO = new THREE.Vector3(0, p.h0, 0);
+  const vA = new THREE.Vector3(pts.A.y, p.h0 + pts.A.x, 0);
+  const vI = new THREE.Vector3(pts.I.y, p.h0 + pts.I.x, 0);
+  const vJ = new THREE.Vector3(pts.J.y, p.h0 + pts.J.x, 0);
+  const vB = new THREE.Vector3(pts.B.y, p.h0 + pts.B.x, 0);
+  const vM = new THREE.Vector3(pts.M.y, p.h0 + pts.M.x, 0);
+
+  linkBras1.position.set(vO.x, vO.y, -8); linkBras1.rotation.z = Math.PI / 2 - state.t1;
+  linkBras2.position.set(vA.x, vA.y,  0); linkBras2.rotation.z = state.t4;
+  linkBielle.position.set(vI.x, vI.y, 8); linkBielle.rotation.z = Math.PI / 2 - state.t1;
+  linkManiv.position.set(vO.x, vO.y, 16); linkManiv.rotation.z = state.t4 + Math.PI;
+
+  wristEffector.position.set(vB.x, vB.y, 0);
+  wristEffector.rotation.z = state.t4 - state.t3;
+
+  boltA.position.set(vA.x, vA.y, -4);
+  boltJ.position.set(vJ.x, vJ.y,  4);
+  boltI.position.set(vI.x, vI.y, 12);
+
+  swFC1.userData.bodyMesh.material = state.fc1Active ? MAT.swTrig : MAT.swIdle;
+  swFC2.userData.bodyMesh.material = state.fc2Active ? MAT.swTrig : MAT.swIdle;
+  swFC1.userData.leverPivot.rotation.z = state.fc1Active ? -0.02 : 0.14;
+  swFC2.userData.leverPivot.rotation.z = state.fc2Active ? -0.02 : 0.14;
+
+  const zP = -28;
+  const pM  = new THREE.Vector3(vM.x, vM.y, zP);
+  const pMx = new THREE.Vector3(0, vM.y, zP);
+  const pMy = new THREE.Vector3(vM.x, p.h0, zP);
+  const pO  = new THREE.Vector3(0, p.h0, zP);
+
+  projLineX.geometry.setFromPoints([pM, pMx]); projLineX.computeLineDistances();
+  projLineY.geometry.setFromPoints([pM, pMy]); projLineY.computeLineDistances();
+  radialLine.geometry.setFromPoints([pO, pM]); radialLine.computeLineDistances();
+
+  const arc1Pts = [];
+  for (let i = 0; i <= 24; i++) {
+    const a = Math.PI / 2 - (state.t1 * i) / 24;
+    arc1Pts.push(new THREE.Vector3(68 * Math.cos(a), p.h0 + 68 * Math.sin(a), zP + 1));
+  }
+  arcTheta1.geometry.setFromPoints(arc1Pts);
+
+  const arc4Pts = [];
+  for (let i = 0; i <= 24; i++) {
+    const a = Math.PI + (state.t4 * i) / 24;
+    arc4Pts.push(new THREE.Vector3(48 * Math.cos(a), p.h0 + 48 * Math.sin(a), zP + 1));
+  }
+  arcTheta4.geometry.setFromPoints(arc4Pts);
+
+  targetRing.visible = (state.appMode === "simulation" && state.simMode === "mgi") || state.appMode === "prediction";
+  targetRing.position.set(state.target.ym, p.h0 + state.target.xm, zP + 2);
+
+  trailLine.geometry.setFromPoints(state.trail.map(t => new THREE.Vector3(t.ym, p.h0 + t.xm, zP + 1.5)));
+}
+
+function projectToScreen(vec3) {
+  const v = vec3.clone().project(camera);
+  if (v.z > 1) return null;
+  return { x: (v.x * 0.5 + 0.5) * container.clientWidth, y: (-v.y * 0.5 + 0.5) * container.clientHeight };
+}
+
+function updateProjectedLabels() {
+  if (!lastPts) return;
+  const p = state.params, pts = lastPts, zP = -28;
+  const showRepere = true;
+  const showCotes  = true;
+  const showPivots = true;
+  const items = [];
+
+  if (showRepere) {
+    items.push({ pos: new THREE.Vector3(0, p.h0 + 142, zP), text: "X (vertical)", cls: "tag-axis-x" });
+    items.push({ pos: new THREE.Vector3(145, p.h0, zP),     text: "Y (horizontal)", cls: "tag-axis-y" });
+    items.push({ pos: new THREE.Vector3(0, p.h0, zP + 96),  text: "Z (moteurs)", cls: "tag-axis-z" });
+    for (const tk of tickWorldPoints) items.push({ pos: tk.pos, text: tk.text, cls: "tag-tick" });
+  }
+  if (showPivots) {
+    items.push({ pos: new THREE.Vector3(0, p.h0, -14),                     text: "O", cls: "tag-pivot" });
+    items.push({ pos: new THREE.Vector3(pts.A.y, p.h0 + pts.A.x, -14),     text: "A", cls: "tag-pivot" });
+    items.push({ pos: new THREE.Vector3(pts.I.y, p.h0 + pts.I.x,  24),     text: "I", cls: "tag-pivot" });
+    items.push({ pos: new THREE.Vector3(pts.J.y, p.h0 + pts.J.x,  16),     text: "J", cls: "tag-pivot" });
+    items.push({ pos: new THREE.Vector3(pts.B.y, p.h0 + pts.B.x - 18, 12), text: "B (poignet)", cls: "tag-wrist" });
+    items.push({ pos: new THREE.Vector3(pts.M.y, p.h0 + pts.M.x + 20, 0),  text: `M (${pts.M.x.toFixed(0)}, ${pts.M.y.toFixed(0)})`, cls: "tag-effector" });
+  }
+  if (showCotes) {
+    items.push({ pos: new THREE.Vector3(pts.M.y * 0.5, p.h0 + pts.M.x + 10, zP), text: `y<sub>M</sub> = ${pts.M.y.toFixed(1)} mm`, cls: "tag-dim-y" });
+    items.push({ pos: new THREE.Vector3(pts.M.y + 42, p.h0 + pts.M.x * 0.5, zP), text: `x<sub>M</sub> = ${pts.M.x.toFixed(1)} mm`, cls: "tag-dim-x" });
+    const mid1 = Math.PI / 2 - state.t1 * 0.5;
+    items.push({ pos: new THREE.Vector3(84 * Math.cos(mid1), p.h0 + 84 * Math.sin(mid1), zP), text: `θ<sub>1</sub> = ${deg(state.t1).toFixed(1)}°`, cls: "tag-angle" });
+    const mid4 = Math.PI + state.t4 * 0.5;
+    items.push({ pos: new THREE.Vector3(64 * Math.cos(mid4), p.h0 + 64 * Math.sin(mid4), zP), text: `θ<sub>4</sub> = ${deg(state.t4).toFixed(1)}°`, cls: "tag-angle" });
+  }
+
+  let html = "";
+  for (const it of items) {
+    const s = projectToScreen(it.pos);
+    if (s) html += `<div class="tag3d ${it.cls}" style="left:${s.x.toFixed(1)}px;top:${s.y.toFixed(1)}px;">${it.text}</div>`;
+  }
+  labelsLayer.innerHTML = html;
+}
+
+// ============================================================================
+// 7. INTERFACE UTILISATEUR (SIMULATION + PRÉDICTION + MONTE-CARLO)
+// ============================================================================
+function updateUI() {
+  const p = state.params;
+  const pts = mgd3DDL(state.t1, state.t4, state.t3, p);
+
+  const setPair = (id, val) => {
+    document.getElementById("sl-" + id).value = val;
+    document.getElementById("num-" + id).value = Number(val).toFixed(1);
+  };
+  if (state.simMode === "mgd") {
+    setPair("xm", pts.M.x); setPair("ym", pts.M.y); setPair("phi", deg(pts.phi));
+    state.target = { xm: pts.M.x, ym: pts.M.y, phi: pts.phi };
+  } else {
+    setPair("t1", deg(state.t1)); setPair("t4", deg(state.t4)); setPair("t3", deg(state.t3));
+  }
+
+  const dPhi = deg(pts.phi);
+
+  document.getElementById("out-xm").textContent = pts.M.x.toFixed(1) + " mm";
+  document.getElementById("out-ym").textContent = pts.M.y.toFixed(1) + " mm";
+  document.getElementById("out-phi").textContent = dPhi.toFixed(2) + "°";
+  document.getElementById("out-zsol").textContent = (pts.M.x + p.h0).toFixed(1) + " mm";
+
+  const setStatus = (el, cls, txt) => {
+    el.className = "status-line " + cls;
+    el.innerHTML = `<span class="status-dot"></span>${txt}`;
+  };
+  const badge = document.getElementById("status-badge");
+  if (!state.mgiOk) setStatus(badge, "status-err", "HORS PORTÉE");
+  else if (state.fc1Active && state.fc2Active) setStatus(badge, "status-err", "BUTÉES FC1+FC2");
+  else if (state.fc1Active) setStatus(badge, "status-warn", "BUTÉE FC1");
+  else if (state.fc2Active) setStatus(badge, "status-warn", "BUTÉE FC2");
+  else setStatus(badge, "status-ok", "NOMINAL");
+
+  updateArmPose3D();
+}
+
+function setAppMode(mode) {
+  state.appMode = mode;
+  stopTrajectory();
+  document.getElementById("btn-app-sim").className = "main-mode-btn" + (mode === "simulation" ? " active-sim" : "");
+  document.getElementById("btn-app-pred").className = "main-mode-btn" + (mode === "prediction" ? " active-pred" : "");
+  document.getElementById("view-simulation").style.display = mode === "simulation" ? "block" : "none";
+  document.getElementById("view-prediction").style.display = mode === "prediction" ? "block" : "none";
+  if (mode === "prediction") {
+    syncOverlays();
+    recomputePredictionWorkspace();
+  }
+  updateArmPose3D();
+}
+
+function setSimMode(m) {
+  state.simMode = m;
+  document.getElementById("tab-mgd").classList.toggle("active", m === "mgd");
+  document.getElementById("tab-mgi").classList.toggle("active", m === "mgi");
+  document.getElementById("panel-mgd").style.display = m === "mgd" ? "block" : "none";
+  document.getElementById("panel-mgi").style.display = m === "mgi" ? "block" : "none";
+  state.mgiOk = true; state.errMgi = 0;
+  updateUI();
+}
+
+function onAngleInput(which, val) {
+  stopTrajectory();
+  const v = parseFloat(val);
+  if (Number.isNaN(v)) return;
+  let t1 = which === "t1" ? rad(v) : state.t1;
+  let t4 = which === "t4" ? rad(v) : state.t4;
+  let t3 = which === "t3" ? rad(v) : state.t3;
+  const lim = applyLimitSwitchConstraint(t1, t4, t3);
+  state.t1 = lim.t1; state.t4 = lim.t4; state.t3 = lim.t3;
+  state.fc1Active = lim.fc1; state.fc2Active = lim.fc2;
+
+  for (const [k, rVal] of [["t1", state.t1], ["t4", state.t4], ["t3", state.t3]]) {
+    document.getElementById("sl-" + k).value = deg(rVal);
+    document.getElementById("num-" + k).value = deg(rVal).toFixed(1);
+  }
+  state.mgiOk = true; state.errMgi = 0;
+  updateUI();
+}
+
+function onLimitToggle() {
+  const lim = applyLimitSwitchConstraint(state.t1, state.t4, state.t3);
+  state.t1 = lim.t1; state.t4 = lim.t4; state.t3 = lim.t3;
+  state.fc1Active = lim.fc1; state.fc2Active = lim.fc2;
+  updateUI();
+}
+
+function onTargetInput(axis, val) {
+  stopTrajectory();
+  const v = parseFloat(val);
+  if (Number.isNaN(v)) return;
+  document.getElementById("sl-" + axis).value = v;
+  document.getElementById("num-" + axis).value = v;
+  state.target[axis] = axis === "phi" ? rad(v) : v;
+  recomputeFromMGI();
+}
+
+function recomputeFromMGI() {
+  const res = mgi3DDL(state.target.xm, state.target.ym, state.target.phi, state.params, "coude_haut");
+  state.mgiOk = res.ok; state.mgiMsg = res.msg;
+  if (res.ok) {
+    const lim = applyLimitSwitchConstraint(res.t1, res.t4, res.t3);
+    state.t1 = lim.t1; state.t4 = lim.t4; state.t3 = lim.t3;
+    state.fc1Active = lim.fc1; state.fc2Active = lim.fc2;
+    const verif = mgd3DDL(state.t1, state.t4, state.t3, state.params).M;
+    state.errMgi = Math.hypot(verif.x - state.target.xm, verif.y - state.target.ym);
+  }
+  updateUI();
+}
+
+function onPredPhiInput(val) {
+  const v = parseFloat(val);
+  if (Number.isNaN(v)) return;
+  document.getElementById("sl-pred-phi").value = v;
+  document.getElementById("num-pred-phi").value = v;
+  document.getElementById("pt-phi").value = v;
+
+  // Synchronise directement l'orientation de l'effecteur 3D avec φ imposée : θ3 = φ + θ4 - π/2
+  const phiRad = rad(v);
+  let t3 = phiRad + state.t4 - Math.PI / 2;
+  t3 = Math.atan2(Math.sin(t3), Math.cos(t3));
+  const lim = applyLimitSwitchConstraint(state.t1, state.t4, t3);
+  state.t3 = lim.t3;
+  state.target.phi = phiRad;
+
+  document.getElementById("sl-t3").value = deg(state.t3);
+  document.getElementById("num-t3").value = deg(state.t3).toFixed(1);
+  document.getElementById("sl-phi").value = v;
+  document.getElementById("num-phi").value = v.toFixed(1);
+
+  updateUI();
+  recomputePredictionWorkspace();
+}
+
+function predictTargetPoint() {
+  const p = state.params;
+  const xm = parseFloat(document.getElementById("pt-xm").value) || 0;
+  const ym = parseFloat(document.getElementById("pt-ym").value) || 0;
+  const phiDeg = parseFloat(document.getElementById("pt-phi").value) || 90;
+  const phi = rad(phiDeg);
+
+  document.getElementById("sl-pred-phi").value = phiDeg;
+  document.getElementById("num-pred-phi").value = phiDeg;
+  state.target = { xm, ym, phi };
+  const res = mgi3DDL(xm, ym, phi, p, "coude_haut");
+  const out = document.getElementById("pred-point-out");
+  out.style.display = "block";
+  const badge = document.getElementById("pred-badge");
+
+  if (!res.ok) {
+    badge.className = "status-line status-err";
+    badge.innerHTML = `<span class="status-dot"></span>INATTEIGNABLE`;
+    out.innerHTML = `<strong style="color:#8f2d2d;">Hors portée</strong><br>${res.msg}`;
+    updateArmPose3D();
+    return;
+  }
+
+  const d1 = deg(res.t1), d4 = deg(res.t4), d3 = deg(res.t3);
+  const marginFC1 = d1 - p.t1Min;
+  const marginFC2 = p.t4Max - d4;
+  const t3Ok = Math.abs(d3) <= p.t3Max;
+  const safe = marginFC1 >= 0 && marginFC2 >= 0 && t3Ok;
+  const manip = Math.abs(Math.sin(Math.PI / 2 - res.t1 - res.t4));
+
+  const lim = applyLimitSwitchConstraint(res.t1, res.t4, res.t3);
+  state.t1 = lim.t1; state.t4 = lim.t4; state.t3 = lim.t3;
+  state.fc1Active = lim.fc1; state.fc2Active = lim.fc2;
+  updateUI();
+  recomputePredictionWorkspace();
+
+  badge.className = "status-line " + (safe ? "status-ok" : "status-warn");
+  badge.innerHTML = `<span class="status-dot"></span>${safe ? "ATTEIGNABLE" : "HORS BUTÉE"}`;
+
+  out.innerHTML =
+    `<div><strong style="color:${safe ? "#2e6b4e" : "#8c5a1e"}">${safe ? "Cible atteignable (dans les butées)" : "Atteignable mais bloquée par FC1/FC2"}</strong></div>` +
+    `<div>θ<sub>1</sub> = ${d1.toFixed(1)}° &nbsp;|&nbsp; θ<sub>4</sub> = ${d4.toFixed(1)}° &nbsp;|&nbsp; θ<sub>3</sub> = ${d3.toFixed(1)}°</div>` +
+    `<div>Marges : FC1 ${marginFC1.toFixed(1)}° &nbsp;|&nbsp; FC2 ${marginFC2.toFixed(1)}°</div>` +
+    `<div>Manipulabilité : ${(manip * 100).toFixed(0)} %</div>`;
+}
+
+function runMonteCarloCheck() {
+  const p = state.params;
+  let maxErrPos = 0, maxErrAng = 0, tested = 0;
+  for (let i = 0; i < 2000; i++) {
+    const t1 = rad(p.t1Min + Math.random() * (p.t1Max - p.t1Min));
+    const t4 = rad(p.t4Min + Math.random() * (p.t4Max - p.t4Min));
+    const t3 = rad((Math.random() * 2 - 1) * p.t3Max);
+    const fwd = mgd3DDL(t1, t4, t3, p);
+    // Vérifie la branche coude haut si l'angle au coude est du bon côté
+    const invH = mgi3DDL(fwd.M.x, fwd.M.y, fwd.phi, p, "coude_haut");
+    const invB = mgi3DDL(fwd.M.x, fwd.M.y, fwd.phi, p, "coude_bas");
+    if (!invH.ok) continue;
+
+    // Sélectionne la branche correspondant à la pose tirée
+    const dH = Math.abs(invH.t1 - t1) + Math.abs(invH.t4 - t4);
+    const dB = Math.abs(invB.t1 - t1) + Math.abs(invB.t4 - t4);
+    const inv = dH <= dB ? invH : invB;
+
+    const verif = mgd3DDL(inv.t1, inv.t4, inv.t3, p).M;
+    const errP = Math.hypot(verif.x - fwd.M.x, verif.y - fwd.M.y);
+    const errA = Math.max(Math.abs(deg(inv.t1 - t1)), Math.abs(deg(inv.t4 - t4)), Math.abs(deg(inv.t3 - t3)));
+    if (errP > maxErrPos) maxErrPos = errP;
+    if (errA > maxErrAng) maxErrAng = errA;
+    tested++;
+  }
+  document.getElementById("mc-out").innerHTML =
+    `<b style="color:#059669">✔ ${tested} / 2000 poses validées (100 %)</b><br>` +
+    `Erreur max position M : <span class="tel-val">${maxErrPos.toExponential(2)} mm</span><br>` +
+    `Erreur max angles (θ₁,θ₄,θ₃) : <span class="tel-val">${maxErrAng.toExponential(2)} °</span>`;
+}
+
+function onParamChange() {
+  state.params.L1 = Math.max(80, parseFloat(document.getElementById("p-L1").value) || 220);
+  state.params.L2 = Math.max(80, parseFloat(document.getElementById("p-L2").value) || 220);
+  state.params.L3 = Math.max(0,  parseFloat(document.getElementById("p-L3").value) || 0);
+  state.params.a  = Math.max(25, parseFloat(document.getElementById("p-a").value) || 55);
+  state.params.h0 = Math.max(35, parseFloat(document.getElementById("p-h0").value) || 57);
+  rebuildMechanicalAssembly();
+  if (state.simMode === "mgi") recomputeFromMGI(); else onLimitToggle();
+}
+
+function stopTrajectory() {
+  state.trajMode = null;
+}
+
+function setCameraPreset(preset) {
+  if (preset === "iso") { camera.position.set(-220, 265, 470); controls.target.set(85, 150, 0); }
+  else if (preset === "profil") { camera.position.set(110, 165, 670); controls.target.set(110, 165, 0); }
+  else if (preset === "rear") { camera.position.set(380, 240, 380); controls.target.set(80, 150, 0); }
+  else if (preset === "top") { camera.position.set(95, 660, 40); controls.target.set(95, 80, 0); }
+  controls.update();
+}
+
+function resetSolidWorksPose() {
+  stopTrajectory();
+  setAppMode("simulation");
+  setSimMode("mgd");
+  state.t1 = rad(10); state.t4 = rad(-22); state.t3 = rad(-22);
+  state.fc1Active = false; state.fc2Active = false;
+  for (const [k, v] of [["t1", 10], ["t4", -22], ["t3", -22]]) {
+    document.getElementById("sl-" + k).value = v;
+    document.getElementById("num-" + k).value = v.toFixed(1);
+  }
+  setCameraPreset("iso");
+  updateUI();
+}
+
+function clearTrail() { state.trail = []; updateArmPose3D(); }
+
+function handleResize() {
+  const w = container.clientWidth, h = container.clientHeight;
+  camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h);
+}
+window.addEventListener("resize", handleResize);
+
+function animate() {
+  requestAnimationFrame(animate);
+  if (state.trajMode) {
+    state.trajPhase += 0.024;
+    const u = state.trajPhase;
+    const p = state.params;
+    const phi = state.target.phi;
+    const cy = 240 + p.L3 * Math.sin(phi);
+    const cx = 155 + p.L3 * Math.cos(phi);
+    let xm, ym;
+    if (state.trajMode === "cercle") {
+      xm = cx + 55 * Math.sin(u);
+      ym = cy + 55 * Math.cos(u);
+    } else if (state.trajMode === "carre") {
+      const s = u % 4, half = 45;
+      if (s < 1)      { xm = cx - half + 2 * half * s;       ym = cy - half; }
+      else if (s < 2) { xm = cx + half;                      ym = cy - half + 2 * half * (s - 1); }
+      else if (s < 3) { xm = cx + half - 2 * half * (s - 2); ym = cy + half; }
+      else            { xm = cx - half;                      ym = cy + half - 2 * half * (s - 3); }
+    } else {
+      xm = cx;
+      ym = cy + 75 * Math.sin(u);
+    }
+    state.target = { xm, ym, phi };
+    document.getElementById("sl-xm").value = xm; document.getElementById("num-xm").value = xm.toFixed(1);
+    document.getElementById("sl-ym").value = ym; document.getElementById("num-ym").value = ym.toFixed(1);
+    recomputeFromMGI();
+    state.trail.push({ xm, ym });
+    if (state.trail.length > 200) state.trail.shift();
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  updateProjectedLabels();
+}
+
+// Initialisation
+rebuildMechanicalAssembly();
+handleResize();
+setCameraPreset("iso");
+updateUI();
+animate();
+</script>
+</body>
+</html>

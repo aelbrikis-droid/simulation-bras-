@@ -9,6 +9,8 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.146.0/examples/js/loaders/STLLoader.js"></script>
+  <script src="rover_solidworks_mesh.js"></script>
   <style>
     :root {
       --canvas-bg: #eef2f7;
@@ -472,52 +474,79 @@
 
     </div>
 
-    <!-- MODE PRÉDICTION -->
+    <!-- MODE PRÉDICTION (POSITION CHÂSSIS + φ IMPOSÉE + PLAGE CDC + SAISIE OBJET) -->
     <div id="view-prediction" style="display:none;">
 
       <section class="sec">
         <div class="sec-head">
-          <span class="sec-title">Espace de travail</span>
-          <span id="pred-badge" class="status-line status-ok"><span class="status-dot"></span>ACTIF</span>
+          <span class="sec-title">Position châssis &amp; angle φ</span>
+          <span id="pred-badge" class="status-line status-ok"><span class="status-dot"></span>CDC OUI</span>
         </div>
 
-        <select id="pred-ws-mode" class="select-input" onchange="recomputePredictionWorkspace()">
-          <option value="M_phi">Effecteur M à orientation φ fixée</option>
-          <option value="M_all">Effecteur M — Espace total (θ₃ libre)</option>
-          <option value="B_only">Poignet B seul (sans L₃)</option>
-        </select>
+        <div class="seg-tabs" style="margin-bottom:10px;">
+          <button id="btn-dir-fwd" class="tab-btn active" onclick="setArmDirection(1)">Vers l'avant (+X)</button>
+          <button id="btn-dir-rev" class="tab-btn" onclick="setArmDirection(-1)">Vers l'arrière (−X)</button>
+        </div>
 
-        <div id="pred-phi-row" class="ctrl-row" style="margin-bottom:12px;">
+        <div class="ctrl-row">
           <label>φ imposée (°)</label>
-          <input type="range" id="sl-pred-phi" min="0" max="180" step="5" value="90" oninput="onPredPhiInput(this.value)">
-          <input type="number" id="num-pred-phi" step="5" value="90" oninput="onPredPhiInput(this.value)">
+          <input type="range" id="sl-pred-phi" min="0" max="180" step="2" value="90" oninput="onPredPhiInput(this.value)">
+          <input type="number" id="num-pred-phi" step="2" value="90" oninput="onPredPhiInput(this.value)">
         </div>
-
-        <canvas id="ws-canvas-2d" width="332" height="210"></canvas>
-
-        <div class="spec-grid">
-          <div class="spec-cell"><div class="spec-lbl">Surface utile</div><div id="pred-area" class="spec-val">— cm²</div></div>
-          <div class="spec-cell"><div class="spec-lbl">Perte FC1 / FC2</div><div id="pred-loss" class="spec-val">— %</div></div>
-          <div class="spec-cell"><div class="spec-lbl">Portée Y (horiz.)</div><div id="pred-yrange" class="spec-val">— mm</div></div>
-          <div class="spec-cell"><div class="spec-lbl">Portée X (vert.)</div><div id="pred-zrange" class="spec-val">— mm</div></div>
+        <div class="ctrl-row">
+          <label>Retrait d<sub>av</sub> (mm)</label>
+          <input type="range" id="sl-dav" min="35" max="380" step="2" value="110" oninput="onRoverMountInput('dav', this.value)">
+          <input type="number" id="num-dav" step="2" value="110" oninput="onRoverMountInput('dav', this.value)">
         </div>
-        <div class="legend-row">
-          <span class="legend-item"><span class="swatch" style="background:#2563eb;"></span>Atteignable</span>
-          <span class="legend-item"><span class="swatch" style="background:#f97316;"></span>Bloqué FC1 / FC2</span>
+        <div class="ctrl-row">
+          <label>Latéral z<sub>lat</sub> (mm)</label>
+          <input type="range" id="sl-zlat" min="-70" max="70" step="2" value="0" oninput="onRoverMountInput('zlat', this.value)">
+          <input type="number" id="num-zlat" step="2" value="0" oninput="onRoverMountInput('zlat', this.value)">
         </div>
       </section>
 
       <section class="sec">
         <div class="sec-head">
-          <span class="sec-title">Vérification d'une cible</span>
+          <span class="sec-title">Plage atteignable &amp; Cahier des charges</span>
         </div>
-        <div class="field-grid">
-          <div class="field-item"><span>x<sub>M</sub> (mm)</span><input type="number" id="pt-xm" value="160"></div>
-          <div class="field-item"><span>y<sub>M</sub> (mm)</span><input type="number" id="pt-ym" value="310"></div>
-          <div class="field-item"><span>φ (°)</span><input type="number" id="pt-phi" value="90"></div>
-          <button class="btn-primary" onclick="predictTargetPoint()">Tester cible</button>
+
+        <div class="spec-grid">
+          <div class="spec-cell"><div class="spec-lbl">Plage CDC respectée</div><div id="cdc-cov" class="spec-val">—</div></div>
+          <div class="spec-cell"><div class="spec-lbl">Plage D / avant</div><div id="pred-drange" class="spec-val">— mm</div></div>
+          <div class="spec-cell"><div class="spec-lbl">Portée Y (horiz.)</div><div id="pred-yrange" class="spec-val">— mm</div></div>
+          <div class="spec-cell"><div class="spec-lbl">Portée X (vert.)</div><div id="pred-zrange" class="spec-val">— mm</div></div>
         </div>
-        <div id="pred-point-out" class="diag-box" style="display:none;"></div>
+
+        <canvas id="ws-canvas-2d" width="332" height="175"></canvas>
+
+        <div class="legend-row" style="margin-bottom:10px;">
+          <span class="legend-item"><span class="swatch" style="background:#2563eb;"></span>Atteignable</span>
+          <span class="legend-item"><span class="swatch" style="background:#f97316;"></span>Bloqué (Châssis / FC)</span>
+          <span class="legend-item"><span class="swatch" style="background:#10b981;"></span>CDC (100–200 / 0–100)</span>
+        </div>
+
+        <button class="btn-primary" style="width:100%;" onclick="optimizeArmForCDC()">Optimiser longueurs (CDC respecté)</button>
+      </section>
+
+      <section class="sec">
+        <div class="sec-head">
+          <span class="sec-title">Objet à saisir (Cylindre Ø30×80 mm)</span>
+        </div>
+
+        <div class="ctrl-row">
+          <label>Distance D (mm)</label>
+          <input type="range" id="sl-objd" min="50" max="320" step="2" value="150" oninput="onObjectPlacementInput('objd', this.value)">
+          <input type="number" id="num-objd" step="2" value="150" oninput="onObjectPlacementInput('objd', this.value)">
+        </div>
+        <div class="ctrl-row" style="margin-bottom:10px;">
+          <label>Support Z (mm)</label>
+          <input type="range" id="sl-objz" min="0" max="160" step="2" value="0" oninput="onObjectPlacementInput('objz', this.value)">
+          <input type="number" id="num-objz" step="2" value="0" oninput="onObjectPlacementInput('objz', this.value)">
+        </div>
+
+        <button class="btn-primary" style="width:100%; background:#059669; border-color:#059669;" onclick="simulateGraspObject()">Simuler saisie de l'objet</button>
+
+        <div id="cdc-opt-out" class="diag-box" style="display:none;"></div>
       </section>
 
     </div>
@@ -550,9 +579,19 @@ if (typeof THREE === "undefined") {
 const state = {
   params: {
     L1: 220, L2: 220, L3: 85, a: 55, h0: 57,
-    t1Min: -22, t1Max: 70,
-    t4Min: -55, t4Max: 16,
-    t3Max: 110,
+    t1Min: -22, t1Max: 75,
+    t4Min: -75, t4Max: 16,
+    t3Max: 120,
+  },
+  rover: {
+    frontX: 216.0, // Bord avant de 0-Partie chassis avant (SolidWorks Z_sw = -216.0 mm)
+    rearX: -267.0, // Bord arrière de 1-Partie chassis arriére (SolidWorks Z_sw = +267.0 mm)
+    dir: 1,        // +1 = bras orienté vers l'avant (+X), -1 = bras orienté vers l'arrière (-X)
+    dAv: 110,      // Retrait longitudinal de l'axe O depuis le bord actif du châssis (mm)
+    zLat: 0,       // Décalage latéral du bras sur la largeur 324 mm du châssis (mm)
+    hRover: 113.0, // Hauteur exacte du dessus du châssis SolidWorks par rapport au sol des roues (113.0 mm)
+    objD: 150,     // Position longitudinale de l'objet cylindre devant le bord actif [100..200 mm]
+    objZPlat: 0,   // Hauteur de la plateforme sous le cylindre [0..100 mm]
   },
   appMode: "simulation", // "simulation" | "prediction"
   simMode: "mgd",        // "mgd" | "mgi"
@@ -664,19 +703,116 @@ function applyLimitSwitchConstraint(t1, t4, t3) {
   const p = state.params;
   const blockEnabled = true;
   const t1Lim = rad(p.t1Min);
+  const t1Max = rad(p.t1Max);
   const t4Lim = rad(p.t4Max);
   const t3Lim = rad(p.t3Max);
 
   let fc1 = t1 <= t1Lim + 1e-3;
   let fc2 = t4 >= t4Lim - 1e-3;
+  let chassisHit = false;
+  let blockReason = "";
 
   if (blockEnabled) {
-    if (t1 < t1Lim) { t1 = t1Lim; fc1 = true; }
-    if (t4 > t4Lim) { t4 = t4Lim; fc2 = true; }
+    if (t1 < t1Lim) { t1 = t1Lim; fc1 = true; blockReason = "Fin de course FC1 (butée arrière Bras 1)"; }
+    if (t4 > t4Lim) { t4 = t4Lim; fc2 = true; blockReason = "Fin de course FC2 (butée basse Bielle)"; }
+    if (t1 > t1Max) { t1 = t1Max; chassisHit = true; blockReason = "Butée avant sur la base / châssis (Bras 1)"; }
     if (t3 > t3Lim) t3 = t3Lim;
     if (t3 < -t3Lim) t3 = -t3Lim;
+
+    // En Mode Prédiction (bras monté sur le Rover), empêcher Bras 1 / Bras 2 de traverser le châssis avant (y <= dAv, x = -h0)
+    if (state.appMode === "prediction") {
+      const chk = checkPosePhysicalConstraints(t1, t4, t3, p, state.rover.dAv, state.rover.hRover, true);
+      if (!chk.ok && (chk.code === "CHASSIS" || chk.code === "BASE" || chk.code === "SOL")) {
+        chassisHit = true;
+        blockReason = chk.msg;
+        // Remonter progressivement t4 (et si besoin t1) jusqu'au contact exact avec l'arête du châssis
+        for (let iter = 0; iter < 30; iter++) {
+          const c = checkPosePhysicalConstraints(t1, t4, t3, p, state.rover.dAv, state.rover.hRover, true);
+          if (c.ok || (c.code !== "CHASSIS" && c.code !== "BASE" && c.code !== "SOL")) break;
+          if (t4 < t4Lim - 0.02) t4 += 0.022;
+          else if (t1 > t1Lim + 0.02) t1 -= 0.022;
+        }
+      }
+    }
   }
-  return { t1, t4, t3, fc1, fc2 };
+  state.chassisBlocked = chassisHit;
+  state.blockReason = blockReason;
+  return { t1, t4, t3, fc1, fc2, chassisHit, blockReason };
+}
+
+/**
+ * Vérifie toutes les contraintes physiques réelles :
+ * 1) Fin de course FC1 (patte arrière Bras 1)
+ * 2) Fin de course FC2 (bout arrondi Bielle)
+ * 3) Collision de Bras 1, Bras 2 ou Poignet B avec la plaque de base ou l'arête avant du châssis du Rover
+ * 4) Collision avec le sol
+ * 5) Limites articulaires poignet / parallélogramme
+ */
+function checkPosePhysicalConstraints(t1, t4, t3, p, dAv, hRover, withRover) {
+  const d1 = deg(t1), d4 = deg(t4), d3 = deg(t3);
+
+  // 1. Fins de course réels FC1 et FC2
+  if (d1 < p.t1Min - 0.15) {
+    return { ok: false, code: "FC1", msg: `Bloqué par le fin de course FC1 (Bras 1 à ${d1.toFixed(1)}° < ${p.t1Min.toFixed(1)}°)` };
+  }
+  if (d4 > p.t4Max + 0.15) {
+    return { ok: false, code: "FC2", msg: `Bloqué par le fin de course FC2 (Bielle à ${d4.toFixed(1)}° > ${p.t4Max.toFixed(1)}°)` };
+  }
+
+  const pts = mgd3DDL(t1, t4, t3, p);
+  const xChassis = -p.h0; // Cote verticale du dessus du châssis du Rover dans le repère (O, X, Y)
+
+  // 2. Collision de Bras 1 avec la plaque de base du bras (y <= 75 mm, x = -h0 + 7)
+  if (d1 > p.t1Max + 0.15 || pts.A.x < xChassis + 15) {
+    return { ok: false, code: "BASE", msg: `Collision de Bras 1 avec la base / le châssis (θ₁ = ${d1.toFixed(1)}° trop incliné vers l'avant)` };
+  }
+
+  // 3. Collision avec le châssis du Rover (arête avant en y = dAv, hauteur x = -h0)
+  const yEdge = withRover ? Math.max(75.5, dAv) : 75.5;
+  // Si le poignet B est encore au-dessus du châssis (y_B <= yEdge) et descend sous le plateau
+  if (pts.B.y <= yEdge + 12 && pts.B.x < xChassis + 14) {
+    return { ok: false, code: "CHASSIS", msg: `Collision du poignet B / Bras 2 avec le dessus du châssis du Rover` };
+  }
+  // Si Bras 2 (segment A -> B) croise l'arête avant du châssis (y_A <= yEdge <= y_B)
+  if (pts.A.y <= yEdge && pts.B.y >= yEdge && pts.B.y > pts.A.y + 1e-3) {
+    const u = (yEdge - pts.A.y) / (pts.B.y - pts.A.y);
+    const xAtEdge = pts.A.x + u * (pts.B.x - pts.A.x);
+    const halfWidthVert = 13.5 / Math.max(0.35, Math.cos(t4));
+    if (xAtEdge - halfWidthVert < xChassis + 1.5) {
+      return {
+        ok: false,
+        code: "CHASSIS",
+        msg: `Collision physique de Bras 2 avec le bord avant du châssis du Rover (avancez le bras en réduisant d_av ou augmentez L₁/L₂)`,
+      };
+    }
+  }
+  // Si l'effecteur (segment B -> M) croise l'arête avant du châssis
+  if (pts.B.y <= yEdge && pts.M.y >= yEdge && pts.M.y > pts.B.y + 1e-3) {
+    const u = (yEdge - pts.B.y) / (pts.M.y - pts.B.y);
+    const xAtEdge = pts.B.x + u * (pts.M.x - pts.B.x);
+    if (xAtEdge < xChassis + 12) {
+      return { ok: false, code: "CHASSIS", msg: `Collision de l'effecteur L₃ avec le bord avant du châssis du Rover` };
+    }
+  }
+
+  // 4. Collision avec le sol (en Mode Prédiction sur le Rover)
+  if (withRover) {
+    const zSolB = hRover + p.h0 + pts.B.x;
+    const zSolM = hRover + p.h0 + pts.M.x;
+    if (zSolB < 14 || zSolM < 8) {
+      return { ok: false, code: "SOL", msg: `Collision du poignet ou de la pince avec le sol` };
+    }
+  }
+
+  // 5. Butées internes poignet / parallélogramme
+  if (d4 < p.t4Min - 0.15) {
+    return { ok: false, code: "ARTICULATION", msg: `Butée mécanique du parallélogramme (Bras 2 trop abaissé : θ₄ = ${d4.toFixed(1)}°)` };
+  }
+  if (Math.abs(d3) > p.t3Max + 0.15) {
+    return { ok: false, code: "POIGNET", msg: `Angle du poignet θ₃ = ${d3.toFixed(1)}° hors limite (±${p.t3Max}°)` };
+  }
+
+  return { ok: true, code: "OK", msg: "OK" };
 }
 
 // ============================================================================
@@ -843,15 +979,17 @@ function createWristAndEffectorGroup(L3) {
     const arm3 = addMeshWithEdges(grp, new THREE.BoxGeometry(bodyLen, 14, 10), MAT.alu);
     arm3.position.set(bodyLen / 2, 0, 0);
 
-    // Traverse porte-mors
-    const cross = addMeshWithEdges(grp, new THREE.BoxGeometry(8, 28, 12), MAT.wristBody);
+    // Traverse porte-mors (ouverture latérale selon Z pour saisir le cylindre vertical Ø30 mm)
+    const cross = addMeshWithEdges(grp, new THREE.BoxGeometry(8, 16, 48), MAT.wristBody);
     cross.position.set(bodyLen, 0, 0);
 
-    // Deux doigts de pince jusqu'au point outil M (x = L3)
-    const j1 = addMeshWithEdges(grp, new THREE.BoxGeometry(jawLen, 5, 8), MAT.gripper);
-    j1.position.set(bodyLen + jawLen / 2, 9.5, 0);
-    const j2 = addMeshWithEdges(grp, new THREE.BoxGeometry(jawLen, 5, 8), MAT.gripper);
-    j2.position.set(bodyLen + jawLen / 2, -9.5, 0);
+    // Deux doigts de pince mobiles selon Z (s'ouvrent à ±22 mm et se referment à ±15.2 mm sur le cylindre Ø30 mm)
+    const j1 = addMeshWithEdges(grp, new THREE.BoxGeometry(jawLen, 12, 4.5), MAT.gripper);
+    j1.position.set(bodyLen + jawLen / 2, 0, 18);
+    const j2 = addMeshWithEdges(grp, new THREE.BoxGeometry(jawLen, 12, 4.5), MAT.gripper);
+    j2.position.set(bodyLen + jawLen / 2, 0, -18);
+    grp.userData.jawLeft = j1;
+    grp.userData.jawRight = j2;
 
     // Repère sphérique rouge au point outil M
     const tip = new THREE.Mesh(new THREE.SphereGeometry(4.2, 16, 16), MAT.gripperTip);
@@ -916,11 +1054,198 @@ function buildLimitSwitch(xPos, zPos) {
   return grp;
 }
 
+const armMountGroup = new THREE.Group();
 const baseGroup = new THREE.Group();
 const armGroup = new THREE.Group();
 const overlayGroup = new THREE.Group();
 const workspaceGroup = new THREE.Group();
-scene.add(baseGroup, armGroup, overlayGroup, workspaceGroup);
+armMountGroup.add(baseGroup, armGroup, overlayGroup, workspaceGroup);
+
+const roverGroup = new THREE.Group();
+const cdcGroup = new THREE.Group();
+roverGroup.visible = false;
+cdcGroup.visible = false;
+scene.add(roverGroup, cdcGroup, armMountGroup);
+
+// Matériaux Rover SolidWorks & CDC
+const MAT_ROVER = {
+  plate: new THREE.MeshStandardMaterial({ color: 0xa7b4c8, roughness: 0.36, metalness: 0.55 }),
+  corniere: new THREE.MeshStandardMaterial({ color: 0x7a746e, roughness: 0.42, metalness: 0.58 }),
+  moyeu: new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.32, metalness: 0.72 }),
+  motor: new THREE.MeshStandardMaterial({ color: 0x47505e, roughness: 0.40, metalness: 0.65 }),
+  kp000: new THREE.MeshStandardMaterial({ color: 0xd8dee6, roughness: 0.34, metalness: 0.68 }),
+  wheel: new THREE.MeshStandardMaterial({ color: 0x3b4352, roughness: 0.48, metalness: 0.46 }),
+  fastener: new THREE.MeshStandardMaterial({ color: 0xc2beb8, roughness: 0.26, metalness: 0.82 }),
+  shaft: new THREE.MeshStandardMaterial({ color: 0xd0d7e2, roughness: 0.24, metalness: 0.86 }),
+  cdcZone: new THREE.MeshBasicMaterial({ color: 0x10b981, transparent: true, opacity: 0.14, depthWrite: false }),
+  cdcWire: new THREE.LineBasicMaterial({ color: 0x059669, transparent: true, opacity: 0.75 }),
+  platform: new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.6, metalness: 0.2 }),
+  cylinder: new THREE.MeshStandardMaterial({ color: 0x06b6d4, roughness: 0.32, metalness: 0.35 }),
+};
+
+let cachedSolidWorksRoverGroup = null;
+
+function decodeB64ToUint8(b64) {
+  const bin = atob(b64);
+  const len = bin.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+/**
+ * Décode une seule fois les 17 pièces et 73 instances exportées directement depuis
+ * Assemblage Rover.SLDASM (avec leurs matrices de transformation SolidWorks exactes).
+ */
+function getOrBuildSolidWorksRoverMesh() {
+  if (cachedSolidWorksRoverGroup) return cachedSolidWorksRoverGroup;
+  const data = window.ROVER_SOLIDWORKS_DATA;
+  if (!data) return new THREE.Group();
+
+  const partGeoms = {};
+  const partEdges = {};
+  for (const [pid, p] of Object.entries(data.parts)) {
+    const vBytes = decodeB64ToUint8(p.v);
+    const qVerts = new Uint16Array(vBytes.buffer, vBytes.byteOffset, vBytes.byteLength / 2);
+    const pos = new Float32Array(p.nV * 3);
+    const mn0 = p.min[0], mn1 = p.min[1], mn2 = p.min[2];
+    const sp0 = p.span[0] / 65535.0, sp1 = p.span[1] / 65535.0, sp2 = p.span[2] / 65535.0;
+    for (let k = 0; k < p.nV; k++) {
+      pos[3 * k]     = mn0 + qVerts[3 * k]     * sp0;
+      pos[3 * k + 1] = mn1 + qVerts[3 * k + 1] * sp1;
+      pos[3 * k + 2] = mn2 + qVerts[3 * k + 2] * sp2;
+    }
+
+    const iBytes = decodeB64ToUint8(p.i);
+    const idxArr = p.u32
+      ? new Uint32Array(iBytes.buffer, iBytes.byteOffset, iBytes.byteLength / 4)
+      : new Uint16Array(iBytes.buffer, iBytes.byteOffset, iBytes.byteLength / 2);
+
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    geom.setIndex(new THREE.BufferAttribute(idxArr, 1));
+    geom.computeVertexNormals();
+    partGeoms[pid] = geom;
+
+    // Arêtes CAO nettes sur les pièces prismatiques du châssis
+    if (["6", "7", "9", "10", "16"].includes(pid)) {
+      partEdges[pid] = new THREE.EdgesGeometry(geom, 28);
+    }
+  }
+
+  const matByPart = {
+    0: MAT_ROVER.fastener,
+    1: MAT_ROVER.fastener,
+    2: MAT_ROVER.kp000,
+    4: MAT_ROVER.moyeu,
+    5: MAT_ROVER.motor,
+    6: MAT_ROVER.corniere,
+    7: MAT_ROVER.plate,
+    8: MAT_ROVER.wheel,
+    9: MAT_ROVER.corniere,
+    10: MAT_ROVER.plate,
+    11: MAT_ROVER.kp000,
+    12: MAT_ROVER.moyeu,
+    14: MAT_ROVER.wheel,
+    15: MAT_ROVER.fastener,
+    16: MAT_ROVER.shaft,
+  };
+
+  const swRoot = new THREE.Group();
+  for (const inst of data.instances) {
+    const pid = String(inst.p);
+    const geom = partGeoms[pid];
+    if (!geom) continue;
+    const mesh = new THREE.Mesh(geom, matByPart[inst.p] || MAT_ROVER.plate);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    if (partEdges[pid]) {
+      mesh.add(new THREE.LineSegments(partEdges[pid], MAT.metalEdge));
+    }
+
+    const m = inst.m;
+    const mat4 = new THREE.Matrix4();
+    mat4.set(
+      m[0], m[3], m[6], m[9]  * 1000.0,
+      m[1], m[4], m[7], m[10] * 1000.0,
+      m[2], m[5], m[8], m[11] * 1000.0,
+      0,    0,    0,    1
+    );
+    mesh.matrixAutoUpdate = false;
+    mesh.matrix.copy(mat4);
+    swRoot.add(mesh);
+  }
+
+  // Passage du repère Assemblage SolidWorks (X_sw latéral, Y_sw haut, -Z_sw avant)
+  // au repère Three.js (+X avant, +Y haut avec roues posées à Y=0, Z centré en 0)
+  swRoot.rotation.y = -Math.PI / 2;
+  swRoot.position.set(0, 59.8, -22.35);
+
+  const wrapper = new THREE.Group();
+  wrapper.add(swRoot);
+  cachedSolidWorksRoverGroup = wrapper;
+  return cachedSolidWorksRoverGroup;
+}
+
+/**
+ * Assemble la vraie maquette 3D SolidWorks du Rover + Zone CDC (Ø30×80 mm).
+ */
+function rebuildRoverAndCDC() {
+  while (roverGroup.children.length) roverGroup.remove(roverGroup.children[0]);
+  while (cdcGroup.children.length) cdcGroup.remove(cdcGroup.children[0]);
+
+  const rv = state.rover;
+  const swRover = getOrBuildSolidWorksRoverMesh();
+  // Ajustement vertical si l'utilisateur modifie H_rover autour de sa valeur nominale 113 mm
+  swRover.position.y = rv.hRover - 113.0;
+  roverGroup.add(swRover);
+
+  const edgeX = rv.dir === 1 ? rv.frontX : rv.rearX;
+
+  // Bord actif matérialisé au sol (repère D = 0 mm)
+  const frontLineGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(edgeX, 1, -240),
+    new THREE.Vector3(edgeX, 1,  240),
+  ]);
+  roverGroup.add(new THREE.Line(frontLineGeo, new THREE.LineBasicMaterial({ color: 0xef4444 })));
+
+  // Plateforme de test (0..100 mm) + Cylindre objet Ø30 × 80 mm placé du côté actif (dir = +1 ou -1)
+  const objX = edgeX + rv.dir * rv.objD;
+  if (rv.objZPlat > 1) {
+    addMeshWithEdges(cdcGroup, new THREE.BoxGeometry(64, rv.objZPlat, 64), MAT_ROVER.platform)
+      .position.set(objX, rv.objZPlat / 2, rv.zLat);
+  }
+  const cyl = addMeshWithEdges(cdcGroup, new THREE.CylinderGeometry(15, 15, 80, 20), MAT_ROVER.cylinder);
+  cyl.position.set(objX, rv.objZPlat + 40, rv.zLat);
+
+  syncRoverMountPosition();
+}
+
+function syncRoverMountPosition() {
+  if (state.appMode === "prediction") {
+    const rv = state.rover;
+    const edgeX = rv.dir === 1 ? rv.frontX : rv.rearX;
+    roverGroup.visible = true;
+    cdcGroup.visible = true;
+    armMountGroup.position.set(edgeX - rv.dir * rv.dAv, rv.hRover, rv.zLat);
+    armMountGroup.rotation.y = rv.dir === 1 ? 0 : Math.PI;
+  } else {
+    roverGroup.visible = false;
+    cdcGroup.visible = false;
+    armMountGroup.position.set(0, 0, 0);
+    armMountGroup.rotation.y = 0;
+  }
+  armMountGroup.updateMatrixWorld(true);
+}
+
+function setArmDirection(dir) {
+  state.rover.dir = dir;
+  document.getElementById("btn-dir-fwd").classList.toggle("active", dir === 1);
+  document.getElementById("btn-dir-rev").classList.toggle("active", dir === -1);
+  rebuildRoverAndCDC();
+  recomputePredictionWorkspace();
+  updateUI();
+}
 
 let linkBras1, linkBras2, linkBielle, linkManiv, wristEffector;
 let boltA, boltI, boltJ, swFC1, swFC2;
@@ -963,6 +1288,7 @@ function rebuildMechanicalAssembly() {
   armGroup.add(linkBras1, linkBras2, linkBielle, linkManiv, wristEffector, boltA, boltJ, boltI);
 
   rebuildCoordinateSystem();
+  rebuildRoverAndCDC();
   recomputePredictionWorkspace();
 }
 
@@ -1034,69 +1360,30 @@ function rebuildCoordinateSystem() {
 function recomputePredictionWorkspace() {
   while (workspaceGroup.children.length) workspaceGroup.remove(workspaceGroup.children[0]);
   const p = state.params;
-  const wsMode = document.getElementById("pred-ws-mode").value;
-  const predPhi = rad(parseFloat(document.getElementById("num-pred-phi").value) || 90);
-  document.getElementById("pred-phi-row").style.display = wsMode === "M_phi" ? "grid" : "none";
+  const predPhi = state.target.phi || rad(90);
 
   const safePts3D = [], blockedPts3D = [];
   const safePts2D = [], blockedPts2D = [];
-
-  // Grille discrète pour estimer la surface (cellules de 10 x 10 mm)
-  const cellSafe = new Set(), cellBlocked = new Set();
-  const cellKey = (x, y) => `${Math.round(x / 10)}_${Math.round(y / 10)}`;
-
   let yMin = 1e9, yMax = -1e9, xMin = 1e9, xMax = -1e9;
 
-  // Balayage complet théorique vs respectant FC1/FC2
-  const step1 = wsMode === "M_all" ? 6 : 3.5;
-  const step4 = wsMode === "M_all" ? 6 : 3.5;
-  for (let t1d = -50; t1d <= p.t1Max; t1d += step1) {
-    for (let t4d = p.t4Min; t4d <= 55; t4d += step4) {
-      const inLimits = (t1d >= p.t1Min - 0.1) && (t4d <= p.t4Max + 0.1);
+  for (let t1d = -50; t1d <= p.t1Max; t1d += 3.5) {
+    for (let t4d = p.t4Min; t4d <= 55; t4d += 3.5) {
       const t1r = rad(t1d), t4r = rad(t4d);
-
-      if (wsMode === "B_only") {
-        const q = mgd3DDL(t1r, t4r, 0, p).B;
-        const k = cellKey(q.x, q.y);
-        if (inLimits) {
-          cellSafe.add(k); safePts3D.push(q.y, p.h0 + q.x, -26); safePts2D.push(q);
-          yMin = Math.min(yMin, q.y); yMax = Math.max(yMax, q.y);
-          xMin = Math.min(xMin, q.x); xMax = Math.max(xMax, q.x);
-        } else {
-          cellBlocked.add(k); blockedPts3D.push(q.y, p.h0 + q.x, -26.5); blockedPts2D.push(q);
-        }
-      } else if (wsMode === "M_phi") {
-        let t3r = predPhi + t4r - Math.PI / 2;
-        t3r = Math.atan2(Math.sin(t3r), Math.cos(t3r));
-        const t3Ok = Math.abs(deg(t3r)) <= p.t3Max;
-        const q = mgd3DDL(t1r, t4r, t3r, p).M;
-        const k = cellKey(q.x, q.y);
-        if (inLimits && t3Ok) {
-          cellSafe.add(k); safePts3D.push(q.y, p.h0 + q.x, -26); safePts2D.push(q);
-          yMin = Math.min(yMin, q.y); yMax = Math.max(yMax, q.y);
-          xMin = Math.min(xMin, q.x); xMax = Math.max(xMax, q.x);
-        } else if (t3Ok) {
-          cellBlocked.add(k); blockedPts3D.push(q.y, p.h0 + q.x, -26.5); blockedPts2D.push(q);
-        }
-      } else {
-        for (let t3d = -p.t3Max; t3d <= p.t3Max; t3d += 28) {
-          const q = mgd3DDL(t1r, t4r, rad(t3d), p).M;
-          const k = cellKey(q.x, q.y);
-          if (inLimits) {
-            if (!cellSafe.has(k)) {
-              cellSafe.add(k); safePts3D.push(q.y, p.h0 + q.x, -26); safePts2D.push(q);
-            }
-            yMin = Math.min(yMin, q.y); yMax = Math.max(yMax, q.y);
-            xMin = Math.min(xMin, q.x); xMax = Math.max(xMax, q.x);
-          } else if (!cellBlocked.has(k)) {
-            cellBlocked.add(k); blockedPts3D.push(q.y, p.h0 + q.x, -26.5); blockedPts2D.push(q);
-          }
-        }
+      let t3r = predPhi + t4r - Math.PI / 2;
+      t3r = Math.atan2(Math.sin(t3r), Math.cos(t3r));
+      const t3Ok = Math.abs(deg(t3r)) <= p.t3Max;
+      const chk = checkPosePhysicalConstraints(t1r, t4r, t3r, p, state.rover.dAv, state.rover.hRover, true);
+      const q = mgd3DDL(t1r, t4r, t3r, p).M;
+      if (chk.ok) {
+        safePts3D.push(q.y, p.h0 + q.x, -26); safePts2D.push(q);
+        yMin = Math.min(yMin, q.y); yMax = Math.max(yMax, q.y);
+        xMin = Math.min(xMin, q.x); xMax = Math.max(xMax, q.x);
+      } else if (t3Ok) {
+        blockedPts3D.push(q.y, p.h0 + q.x, -26.5); blockedPts2D.push(q);
       }
     }
   }
 
-  // Nuages 3D vifs (bleu = atteignable, orange = bloqué)
   const gSafe = new THREE.BufferGeometry();
   gSafe.setAttribute("position", new THREE.Float32BufferAttribute(safePts3D, 3));
   workspaceGroup.add(new THREE.Points(gSafe, new THREE.PointsMaterial({ color: 0x2563eb, size: 4.6, transparent: true, opacity: 0.34 })));
@@ -1107,17 +1394,11 @@ function recomputePredictionWorkspace() {
     workspaceGroup.add(new THREE.Points(gBlk, new THREE.PointsMaterial({ color: 0xf97316, size: 3.8, transparent: true, opacity: 0.22 })));
   }
 
-  // Statistiques prédictives
-  const areaSafeCm2 = cellSafe.size; // 1 cellule = 10x10 mm = 1 cm²
-  let onlyBlockedCount = 0;
-  for (const k of cellBlocked) if (!cellSafe.has(k)) onlyBlockedCount++;
-  const lossPct = (areaSafeCm2 + onlyBlockedCount) > 0
-    ? (100 * onlyBlockedCount) / (areaSafeCm2 + onlyBlockedCount) : 0;
-
-  document.getElementById("pred-area").textContent = `${areaSafeCm2} cm²`;
-  document.getElementById("pred-loss").textContent = `${lossPct.toFixed(1)} %`;
   document.getElementById("pred-yrange").textContent = yMax > yMin ? `[${yMin.toFixed(0)}, ${yMax.toFixed(0)}]` : "—";
   document.getElementById("pred-zrange").textContent = xMax > xMin ? `[${xMin.toFixed(0)}, ${xMax.toFixed(0)}]` : "—";
+  const dMinAv = yMin - state.rover.dAv, dMaxAv = yMax - state.rover.dAv;
+  const drEl = document.getElementById("pred-drange");
+  if (drEl) drEl.textContent = yMax > yMin ? `[${dMinAv.toFixed(0)}, ${dMaxAv.toFixed(0)}]` : "—";
 
   drawWorkspace2DMap(safePts2D, blockedPts2D);
 }
@@ -1161,11 +1442,218 @@ function drawWorkspace2DMap(safePts, blockedPts) {
   g.fillStyle = "#2563eb"; g.fillText("X", ox + 5, 18);
   g.fillStyle = "#10b981"; g.fillText("Y", w - 20, oy - 5);
 
+  // Rectangle de la zone CDC (saisie cylindre Ø30×80 à mi-hauteur : D∈[100,200], Z_prise∈[40,140])
+  const rv = state.rover;
+  const yCdc1 = rv.dAv + 100, yCdc2 = rv.dAv + 200;
+  const xCdc1 = 40 - (rv.hRover + p.h0), xCdc2 = 140 - (rv.hRover + p.h0);
+  const [cx1, cy2] = toPx(xCdc2, yCdc1);
+  const [cx2, cy1] = toPx(xCdc1, yCdc2);
+  g.fillStyle = "rgba(16, 185, 129, 0.20)";
+  g.fillRect(cx1, cy2, cx2 - cx1, cy1 - cy2);
+  g.strokeStyle = "#059669"; g.lineWidth = 1.6;
+  g.strokeRect(cx1, cy2, cx2 - cx1, cy1 - cy2);
+
   // Position actuelle de M
   const cur = mgd3DDL(state.t1, state.t4, state.t3, p).M;
   const [mx, my] = toPx(cur.x, cur.y);
   g.fillStyle = "#ef4444";
   g.beginPath(); g.arc(mx, my, 4.5, 0, Math.PI * 2); g.fill();
+
+  updateCDCStatusUI();
+}
+
+/**
+ * Évalue la couverture du Cahier des Charges (5×5 points sur D∈[100..200], Z_plat∈[0..100])
+ * pour un jeu de paramètres (L1, L2, L3, dAv, hRover) et une orientation de prise φ.
+ */
+function evaluateCDC(p, dAv, hRover, phiRad) {
+  let okCount = 0, total = 0, minManip = 1.0;
+  for (let i = 0; i < 5; i++) {
+    const D = 100 + i * 25;           // 100, 125, 150, 175, 200 mm devant la face avant
+    for (let j = 0; j < 5; j++) {
+      const zPlat = j * 25;           // 0, 25, 50, 75, 100 mm
+      const zGrasp = zPlat + 40;      // Mi-hauteur du cylindre Ø30×80 mm
+      const xM = zGrasp - (hRover + p.h0);
+      const yM = dAv + D;
+      total++;
+
+      const res = mgi3DDL(xM, yM, phiRad, p, "coude_haut");
+      if (!res.ok) continue;
+      const chk = checkPosePhysicalConstraints(res.t1, res.t4, res.t3, p, dAv, hRover, true);
+      if (!chk.ok) continue;
+
+      const manip = Math.abs(Math.sin(Math.PI / 2 - res.t1 - res.t4));
+      if (manip < 0.12) continue;
+
+      okCount++;
+      if (manip < minManip) minManip = manip;
+    }
+  }
+  return { pct: (100 * okCount) / total, okCount, total, minManip };
+}
+
+function updateCDCStatusUI() {
+  const phiRad = state.target.phi || rad(90);
+  const ev = evaluateCDC(state.params, state.rover.dAv, state.rover.hRover, phiRad);
+  const okAll = ev.pct >= 100;
+  const covEl = document.getElementById("cdc-cov");
+  if (covEl) {
+    covEl.textContent = okAll ? "OUI (100 %)" : `NON (${ev.pct.toFixed(0)} %)`;
+    covEl.style.color = okAll ? "#10b981" : "#ef4444";
+  }
+  const badge = document.getElementById("pred-badge");
+  if (badge) {
+    const cls = okAll ? "status-ok" : (ev.pct >= 60 ? "status-warn" : "status-err");
+    badge.className = "status-line " + cls;
+    badge.innerHTML = `<span class="status-dot"></span>${okAll ? "CDC RESPECTÉ" : "CDC NON RESPECTÉ"}`;
+  }
+}
+
+function onRoverMountInput(which, val) {
+  const v = parseFloat(val);
+  if (Number.isNaN(v)) return;
+  document.getElementById("sl-" + which).value = v;
+  document.getElementById("num-" + which).value = v;
+  if (which === "dav") state.rover.dAv = v;
+  if (which === "zlat") state.rover.zLat = v;
+  rebuildRoverAndCDC();
+  recomputePredictionWorkspace();
+  updateUI();
+}
+
+function setGripperJawHalfGap(halfGap) {
+  if (wristEffector && wristEffector.userData.jawLeft) {
+    wristEffector.userData.jawLeft.position.z = halfGap;
+    wristEffector.userData.jawRight.position.z = -halfGap;
+  }
+}
+
+function onObjectPlacementInput(which, val) {
+  const v = parseFloat(val);
+  if (Number.isNaN(v)) return;
+  document.getElementById("sl-" + which).value = v;
+  document.getElementById("num-" + which).value = v;
+  if (which === "objd") state.rover.objD = v;
+  if (which === "objz") state.rover.objZPlat = v;
+  rebuildRoverAndCDC();
+}
+
+let graspAnim = null;
+
+/**
+ * Vérifie si l'objet Cylindre Ø30×80 mm placé en (D, Z_support) est dans la plage atteignable
+ * à l'angle φ imposé ; si oui, anime le bras jusqu'à l'objet et referme la pince dessus.
+ */
+function simulateGraspObject() {
+  const p = state.params;
+  const D = state.rover.objD;
+  const zPlat = state.rover.objZPlat;
+  const phiDeg = parseFloat(document.getElementById("num-pred-phi").value) || 90;
+  const phi = rad(phiDeg);
+
+  const xm = (zPlat + 40) - (state.rover.hRover + p.h0);
+  const ym = state.rover.dAv + D;
+  state.target = { xm, ym, phi };
+
+  const res = mgi3DDL(xm, ym, phi, p, "coude_haut");
+  const out = document.getElementById("cdc-opt-out");
+  out.style.display = "block";
+
+  if (!res.ok) {
+    graspAnim = null;
+    setGripperJawHalfGap(22);
+    out.innerHTML = `<strong style="color:#ef4444;">Objet hors de la plage atteignable</strong><br>Distance D = ${D} mm, Support Z = ${zPlat} mm (${res.msg})`;
+    updateArmPose3D();
+    return;
+  }
+
+  const d1 = deg(res.t1), d4 = deg(res.t4), d3 = deg(res.t3);
+  const chk = checkPosePhysicalConstraints(res.t1, res.t4, res.t3, p, state.rover.dAv, state.rover.hRover, true);
+
+  if (!chk.ok) {
+    graspAnim = null;
+    setGripperJawHalfGap(22);
+    const lim = applyLimitSwitchConstraint(res.t1, res.t4, res.t3);
+    state.t1 = lim.t1; state.t4 = lim.t4; state.t3 = lim.t3;
+    state.fc1Active = lim.fc1; state.fc2Active = lim.fc2;
+    updateUI();
+    out.innerHTML =
+      `<strong style="color:#f59e0b;">${chk.msg}</strong><br>` +
+      `Angles requis pour (D=${D} mm, Z=${zPlat} mm) : θ<sub>1</sub>=${d1.toFixed(1)}°, θ<sub>4</sub>=${d4.toFixed(1)}°, θ<sub>3</sub>=${d3.toFixed(1)}°`;
+    return;
+  }
+
+  // Lancement de l'animation d'approche + fermeture des mors sur le cylindre Ø30 mm
+  graspAnim = {
+    t0_1: rad(12),
+    t0_4: rad(-10),
+    t0_3: phi + rad(-10) - Math.PI / 2,
+    t1_1: res.t1,
+    t1_4: res.t4,
+    t1_3: res.t3,
+    progress: 0,
+  };
+  setGripperJawHalfGap(22);
+  out.innerHTML =
+    `<strong style="color:#10b981;">Objet dans la plage atteignable — Saisie en cours...</strong><br>` +
+    `D = ${D} mm, Z = ${zPlat} mm &nbsp;→&nbsp; θ<sub>1</sub> = ${d1.toFixed(1)}°, θ<sub>4</sub> = ${d4.toFixed(1)}°, θ<sub>3</sub> = ${d3.toFixed(1)}°`;
+}
+
+function testCDCCorner(D, zPlat) {
+  document.getElementById("sl-objd").value = D;
+  document.getElementById("num-objd").value = D;
+  document.getElementById("sl-objz").value = zPlat;
+  document.getElementById("num-objz").value = zPlat;
+  state.rover.objD = D;
+  state.rover.objZPlat = zPlat;
+  rebuildRoverAndCDC();
+  simulateGraspObject();
+}
+
+/**
+ * Recherche automatique des longueurs optimales (L1, L2, L3) POUR LE POSITIONNEMENT ACTUEL
+ * du bras sur le châssis (d_av, z_lat et direction fixés par l'utilisateur).
+ */
+function optimizeArmForCDC() {
+  const phiRad = state.target.phi || rad(90);
+  const baseP = { ...state.params };
+  const dAv = state.rover.dAv;
+  const hRover = state.rover.hRover;
+
+  let best = null;
+  for (let L1 = 160; L1 <= 480; L1 += 15) {
+    for (let L2 = 160; L2 <= 500; L2 += 15) {
+      for (let L3 = 65; L3 <= 165; L3 += 10) {
+        const testP = { ...baseP, L1, L2, L3 };
+        const ev = evaluateCDC(testP, dAv, hRover, phiRad);
+        const totalLen = L1 + L2 + L3;
+        // Priorité à la couverture maximale du CDC pour ce d_av fixé, puis compacité L1+L2+L3
+        const score = ev.pct * 2000 - totalLen + ev.minManip * 50;
+        if (!best || score > best.score) {
+          best = { score, L1, L2, L3, ev };
+        }
+      }
+    }
+  }
+
+  if (!best) return;
+  state.params.L1 = best.L1;
+  state.params.L2 = best.L2;
+  state.params.L3 = best.L3;
+
+  document.getElementById("p-L1").value = best.L1;
+  document.getElementById("p-L2").value = best.L2;
+  document.getElementById("p-L3").value = best.L3;
+
+  rebuildMechanicalAssembly();
+  updateUI();
+
+  const out = document.getElementById("cdc-opt-out");
+  out.style.display = "block";
+  const dirTxt = state.rover.dir === 1 ? "Vers l'avant" : "Vers l'arrière";
+  out.innerHTML =
+    `<strong style="color:${best.ev.pct >= 100 ? "#10b981" : "#f59e0b"};">Longueurs optimisées pour d<sub>av</sub> = ${dAv} mm (${dirTxt}) — CDC ${best.ev.pct.toFixed(0)} %</strong><br>` +
+    `L<sub>1</sub> = <b>${best.L1} mm</b> &nbsp;|&nbsp; L<sub>2</sub> = <b>${best.L2} mm</b> &nbsp;|&nbsp; L<sub>3</sub> = <b>${best.L3} mm</b>`;
 }
 
 function syncOverlays() {
@@ -1239,7 +1727,8 @@ function updateArmPose3D() {
 }
 
 function projectToScreen(vec3) {
-  const v = vec3.clone().project(camera);
+  armMountGroup.updateMatrixWorld();
+  const v = vec3.clone().applyMatrix4(armMountGroup.matrixWorld).project(camera);
   if (v.z > 1) return null;
   return { x: (v.x * 0.5 + 0.5) * container.clientWidth, y: (-v.y * 0.5 + 0.5) * container.clientHeight };
 }
@@ -1314,6 +1803,7 @@ function updateUI() {
   };
   const badge = document.getElementById("status-badge");
   if (!state.mgiOk) setStatus(badge, "status-err", "HORS PORTÉE");
+  else if (state.chassisBlocked) setStatus(badge, "status-warn", "COLLISION CHÂSSIS");
   else if (state.fc1Active && state.fc2Active) setStatus(badge, "status-err", "BUTÉES FC1+FC2");
   else if (state.fc1Active) setStatus(badge, "status-warn", "BUTÉE FC1");
   else if (state.fc2Active) setStatus(badge, "status-warn", "BUTÉE FC2");
@@ -1329,9 +1819,15 @@ function setAppMode(mode) {
   document.getElementById("btn-app-pred").className = "main-mode-btn" + (mode === "prediction" ? " active-pred" : "");
   document.getElementById("view-simulation").style.display = mode === "simulation" ? "block" : "none";
   document.getElementById("view-prediction").style.display = mode === "prediction" ? "block" : "none";
+  syncRoverMountPosition();
   if (mode === "prediction") {
     syncOverlays();
     recomputePredictionWorkspace();
+    camera.position.set(-280, 340, 620);
+    controls.target.set(130, 140, 0);
+    controls.update();
+  } else {
+    setCameraPreset("iso");
   }
   updateArmPose3D();
 }
@@ -1400,7 +1896,6 @@ function onPredPhiInput(val) {
   if (Number.isNaN(v)) return;
   document.getElementById("sl-pred-phi").value = v;
   document.getElementById("num-pred-phi").value = v;
-  document.getElementById("pt-phi").value = v;
 
   // Synchronise directement l'orientation de l'effecteur 3D avec φ imposée : θ3 = φ + θ4 - π/2
   const phiRad = rad(v);
@@ -1542,6 +2037,34 @@ window.addEventListener("resize", handleResize);
 
 function animate() {
   requestAnimationFrame(animate);
+  if (graspAnim) {
+    graspAnim.progress = Math.min(1, graspAnim.progress + 0.025);
+    const p = graspAnim.progress;
+    if (p <= 0.72) {
+      // Phase 1 : approche fluide du bras vers le cylindre avec pince ouverte
+      const u = p / 0.72;
+      const s = u * u * (3 - 2 * u); // smoothstep
+      state.t1 = graspAnim.t0_1 + (graspAnim.t1_1 - graspAnim.t0_1) * s;
+      state.t4 = graspAnim.t0_4 + (graspAnim.t1_4 - graspAnim.t0_4) * s;
+      state.t3 = graspAnim.t0_3 + (graspAnim.t1_3 - graspAnim.t0_3) * s;
+      setGripperJawHalfGap(22);
+      updateUI();
+    } else {
+      // Phase 2 : fermeture des deux mors de la pince sur le cylindre Ø30 mm
+      const u = (p - 0.72) / 0.28;
+      const halfGap = 22 - (22 - 15.2) * u;
+      setGripperJawHalfGap(halfGap);
+      if (p >= 1) {
+        const out = document.getElementById("cdc-opt-out");
+        if (out) {
+          out.innerHTML =
+            `<strong style="color:#10b981;">Objet saisi (D = ${state.rover.objD} mm, Z = ${state.rover.objZPlat} mm)</strong><br>` +
+            `θ<sub>1</sub> = ${deg(state.t1).toFixed(1)}° &nbsp;|&nbsp; θ<sub>4</sub> = ${deg(state.t4).toFixed(1)}° &nbsp;|&nbsp; θ<sub>3</sub> = ${deg(state.t3).toFixed(1)}°`;
+        }
+        graspAnim = null;
+      }
+    }
+  }
   if (state.trajMode) {
     state.trajPhase += 0.024;
     const u = state.trajPhase;
